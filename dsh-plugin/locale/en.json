@@ -1,0 +1,12 @@
+{
+  "meta": {
+    "title": "Code Quarantine",
+    "description": "Blocks ad-injection, supply-chain poisoning and architecture drift before a write lands, and audits the whole project on demand."
+  },
+  "button": {
+    "label": "Quarantine",
+    "title": "Scan this project with dsh-code-quarantine (full audit)",
+    "prompt": "Use the dsh-code-quarantine skill to run a full audit of this project: run `python scripts/quarantine.py . --full --no-color`, then summarize the verdict, every finding (with file:line and evidence) and the suggested fixes. If the verdict is SAFE, reply with that one line only.",
+    "busy": "Starting…"
+  }
+}

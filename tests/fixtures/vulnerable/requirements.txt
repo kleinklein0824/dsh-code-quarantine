@@ -1,0 +1,4 @@
+--index-url https://pypi.mirror-evil.top/simple
+reqeusts==2.31.0
+flask>=2.0
+numpy==1.26.4

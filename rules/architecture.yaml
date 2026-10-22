@@ -1,0 +1,77 @@
+# 第三层（进阶版）：语言规范化与架构偏离检测
+# 只有拿到真实语法树时才启用架构级判定：
+#   - Python：内置 ast（始终可用）
+#   - JS/TS/Go/Java/...：需要可选依赖 tree-sitter，缺失时该语言只做词法层检查，
+#     并在报告的 capabilities 中显式声明能力缺口，绝不用正则假装 AST。
+version: 1
+category: architecture_deviation
+
+rules:
+  - id: AR001
+    title: 架构分层违规
+    severity: warning
+    enabled: true
+    message: 核心/领域层文件直接依赖了 UI 框架、HTTP 客户端或数据库驱动
+    suggestion: 通过端口/适配器（依赖倒置）隔离外部实现，领域层只依赖抽象接口
+    data:
+      layers:
+        - glob: '**/domain/**'
+          forbid: [flask, django, fastapi, starlette, requests, httpx, aiohttp, sqlalchemy, pymongo, redis, psycopg2, pymysql, boto3, celery]
+        - glob: '**/entities/**'
+          forbid: [flask, django, fastapi, requests, httpx, sqlalchemy, pymongo, redis]
+        - glob: '**/core/domain/**'
+          forbid: [flask, django, fastapi, requests, httpx, sqlalchemy, pymongo, redis]
+
+  - id: AR002
+    title: 模块顶层副作用
+    severity: warning
+    enabled: true
+    message: 模块顶层作用域出现网络调用、文件写入或子进程启动
+    suggestion: 将副作用收敛到函数/服务入口，模块导入应保持无副作用（便于测试与冷启动）
+    data:
+      side_effect_calls: [requests.get, requests.post, requests.put, requests.delete, httpx.get, httpx.post, urlopen, socket.create_connection, subprocess.run, subprocess.Popen, subprocess.call, subprocess.check_output, os.system, os.popen, os.remove, os.unlink, os.rmdir, shutil.rmtree, shutil.move]
+      file_write_modes: [w, wb, a, ab, x, xb, w+, a+]
+
+  - id: AR003
+    title: 可疑导出符号命名
+    severity: warning
+    enabled: true
+    message: 新增导出符号使用后门/绕过类命名
+    suggestion: 重命名并说明用途；此类命名即便实现无害也应复核
+    data:
+      name_patterns:
+        - '(?i)\bbackdoor(?![a-zA-Z])'
+        - '(?i)\bmagic_?(admin|login|token)(?![a-zA-Z])'
+        - '(?i)\b(bypass|skip)_?(auth|login|verify|check)(?![a-zA-Z])'
+        - '(?i)\bdisable_?(auth|security|verify)(?![a-zA-Z])'
+        - '(?i)\bdebug_?(exec|shell|run|eval)(?![a-zA-Z])'
+        - '(?i)\binternal_?(only|bypass)(?![a-zA-Z])'
+        - '(?i)\broot_?shell(?![a-zA-Z])'
+        - '(?i)\bno_?verify(?![a-zA-Z])'
+
+  - id: AR004
+    title: 公共接口签名偏离基线
+    severity: warning
+    enabled: true
+    message: 公共函数/类签名与基线相比发生变化，且未见对应测试更新
+    suggestion: 确认是否为预期变更；非预期变更需回滚，预期变更需同步更新基线与测试
+    data:
+      baseline_file: .dsh-quarantine-baseline.json
+
+  - id: AR005
+    title: 循环依赖新增
+    severity: warning
+    enabled: true
+    message: 模块导入关系形成环，且环中包含本次变更文件
+    suggestion: 抽取共享接口到独立模块，或改用依赖注入打破环
+    data:
+      max_cycle_len: 6
+
+  - id: AR006
+    title: 构造函数/属性访问器中的 I/O
+    severity: warning
+    enabled: true
+    message: __init__ 或 @property 中执行网络请求、文件写入或子进程
+    suggestion: 将 I/O 移到显式的方法调用中，构造与取值应保持轻量、可预期
+    data:
+      io_calls: [requests.get, requests.post, httpx.get, httpx.post, urlopen, socket.create_connection, subprocess.run, subprocess.Popen, os.system, os.popen, open]

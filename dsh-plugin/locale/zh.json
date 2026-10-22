@@ -1,0 +1,12 @@
+{
+  "meta": {
+    "title": "代码检疫",
+    "description": "在写入落盘前拦下广告注入、供应链投毒与架构偏离，也能对整个项目做一次全量审计。"
+  },
+  "button": {
+    "label": "代码检疫",
+    "title": "用 dsh-code-quarantine 扫描当前项目（全量审计）",
+    "prompt": "请用 dsh-code-quarantine skill 对当前项目做一次全量审计：运行 `python scripts/quarantine.py . --full --no-color`，然后把判定结果、命中条目（含 file:line 与证据）和修复建议整理给我。如果判定是 SAFE，就只回一行结论。",
+    "busy": "启动中…"
+  }
+}

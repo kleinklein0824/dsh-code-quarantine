@@ -1,0 +1,242 @@
+# 全局白名单与基线数据。
+# 这里的每一项都是"降低误报"的工程手段，而不是放宽检测。
+version: 1
+
+# 出现在这些域名下的 URL 不触发 AD001/AD002（官方文档、标准组织、包仓库等）
+domains:
+  - github.com
+  - githubusercontent.com
+  - gitlab.com
+  - bitbucket.org
+  - pypi.org
+  - npmjs.com
+  - npmjs.org
+  - crates.io
+  - pkg.go.dev
+  - golang.org
+  - python.org
+  - docs.python.org
+  - nodejs.org
+  - developer.mozilla.org
+  - stackoverflow.com
+  - w3.org
+  - iana.org
+  - rfc-editor.org
+  - ietf.org
+  - whatwg.org
+  - ecma-international.org
+  - unicode.org
+  - curl.se
+  - haxx.se
+  - openssl.org
+  - kernel.org
+  - llvm.org
+  - zlib.net
+  - xml.org
+  - xmlsoap.org
+  - cyclonedx.org
+  - spdx.org
+  - semver.org
+  - purl.org
+  - oasis-open.org
+  - opencontainers.org
+  - eslint.org
+  - ts.dev
+  - openai.com
+  - anthropic.com
+  - deepseek.com
+  - json-schema.org
+  - schema.org
+  - apache.org
+  - opensource.org
+  - gnu.org
+  - creativecommons.org
+  - microsoft.com
+  - apple.com
+  - oracle.com
+  - jetbrains.com
+  - readthedocs.io
+  - readthedocs.org
+  - sphinx-doc.org
+  - pytest.org
+  - numpy.org
+  - scipy.org
+  - pandas.pydata.org
+  - django.com
+  - djangoproject.com
+  - flask.palletsprojects.com
+  - fastapi.tiangolo.com
+  - vuejs.org
+  - reactjs.org
+  - react.dev
+  - angular.io
+  - rust-lang.org
+  - kubernetes.io
+  - docker.com
+  - postgresql.org
+  - mysql.com
+  - sqlite.org
+  - redis.io
+  - elastic.co
+  - mozilla.org
+
+# RFC 2606 / RFC 6761 保留域名与本地地址，永远不判为注入
+reserved_domains:
+  - example.com
+  - example.net
+  - example.org
+  - example.edu
+  - localhost
+  - 127.0.0.1
+  - 0.0.0.0
+  - ::1
+  - test.invalid
+  - invalid
+
+# 已知中转站/推广域名（默认只告警，可在此追加）
+blocked_domains: []
+
+# 可疑 TLD / 域名特征（正则，大小写不敏感）
+suspicious_domain_patterns:
+  - '\.(top|xyz|buzz|click|shop|vip|icu|cyou|monster|rest|bar)$'
+  - '(^|\.)(dl|down|cdn|mirror|relay|proxy|api)[0-9]*-?[a-z0-9]*\.(top|xyz|buzz|icu)$'
+  - '(^|\.)[a-z0-9]{1,3}-?[a-z0-9]{0,4}\.(tk|ml|ga|cf|gq)$'
+
+# 私有 registry / 索引源白名单
+registries:
+  - registry.npmjs.org
+  - registry.yarnpkg.com
+  - pypi.org
+  - files.pythonhosted.org
+
+# 依赖名相似但合法的组合，避免 typosquat 误报
+similar_packages:
+  - [react, react-dom]
+  - [react, preact]
+  - [request, requests]
+  - [boto, boto3]
+  - [jose, python-jose]
+  - [yaml, pyyaml]
+  - [jwt, pyjwt]
+  - [dateutil, python-dateutil]
+  - [dotenv, python-dotenv]
+  - [redis, redis-py]
+  - [psycopg2, psycopg2-binary]
+  - [grpc, grpcio]
+  - [protobuf, google-protobuf]
+  - [pillow, pil]
+  - [opencv-python, opencv-contrib-python]
+  - [jest, ts-jest]
+  - [typescript, ts-node]
+  - [eslint, tslint]
+
+# typosquat 比对用的知名包样本（可追加）
+popular_packages:
+  - requests
+  - urllib3
+  - numpy
+  - pandas
+  - scipy
+  - flask
+  - django
+  - fastapi
+  - sqlalchemy
+  - pydantic
+  - pytest
+  - setuptools
+  - wheel
+  - pip
+  - boto3
+  - botocore
+  - cryptography
+  - pyyaml
+  - jinja2
+  - click
+  - rich
+  - typer
+  - httpx
+  - aiohttp
+  - celery
+  - redis
+  - pymongo
+  - psycopg2
+  - pillow
+  - matplotlib
+  - openai
+  - anthropic
+  - langchain
+  - transformers
+  - torch
+  - tensorflow
+  - scikit-learn
+  - express
+  - axios
+  - lodash
+  - react
+  - vue
+  - next
+  - typescript
+  - webpack
+  - eslint
+  - prettier
+  - jest
+  - mocha
+  - chalk
+  - dotenv
+  - mongoose
+  - sequelize
+  - socket.io
+  - puppeteer
+  - playwright
+  - electron
+  - commander
+  - inquirer
+  - uuid
+  - moment
+  - dayjs
+  - zod
+  - tailwindcss
+  - vite
+  - rollup
+  - esbuild
+  - svelte
+  - nuxt
+  - nuxtjs
+  - angular
+  - rxjs
+  - grpc
+  - protobuf
+  - tokio
+  - serde
+  - clap
+  - actix-web
+  - gin
+  - echo
+  - gorm
+  - logrus
+  - cobra
+  - viper
+
+# 这些路径下的文件不做注入/外链判定（文档、示例、测试数据）
+doc_path_globs:
+  - '**/*.md'
+  - '**/*.mdx'
+  - '**/*.rst'
+  - '**/*.txt'
+  - '**/docs/**'
+  - '**/doc/**'
+  - '**/examples/**'
+  - '**/example/**'
+  - '**/samples/**'
+
+# 测试/夹具路径：默认仍扫描危险调用，但不判广告注入（测试数据常含假 URL 与联系方式）
+test_path_globs:
+  - '**/tests/**'
+  - '**/test/**'
+  - '**/__tests__/**'
+  - '**/testdata/**'
+  - '**/fixtures/**'
+  - '**/*_test.py'
+  - '**/test_*.py'
+  - '**/*.test.js'
+  - '**/*.spec.ts'

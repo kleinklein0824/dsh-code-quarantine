@@ -1,0 +1,16 @@
+<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 64 64" width="64" height="64" role="img" aria-label="Eye of Horus">
+  <g fill="none" stroke="#111827" stroke-width="4.4" stroke-linecap="round" stroke-linejoin="round">
+    <!-- 眉毛 -->
+    <path d="M11 16C16.5 9.2 30.5 7.8 43 12.4"/>
+    <!-- 上眼睑 -->
+    <path d="M7.6 30.8C16.5 20.6 34 19.4 45 26.2"/>
+    <!-- 下眼睑 -->
+    <path d="M7.6 30.8C19 36.6 34.5 34.4 45 26.2"/>
+    <!-- 泪痕 -->
+    <path d="M22.8 35.2C21.6 41.4 20.8 46 22.4 51"/>
+    <!-- 螺旋尾 -->
+    <path d="M45 26.2C51.4 29.4 54.6 35 51.4 40.4C48.8 44.8 42.8 43.6 42.8 39.2C42.8 35.8 46.2 34.8 47.2 37.8"/>
+  </g>
+  <circle cx="26.2" cy="27.2" r="5.6" fill="none" stroke="#111827" stroke-width="3.8"/>
+  <circle cx="26.2" cy="27.2" r="2.3" fill="#111827"/>
+</svg>

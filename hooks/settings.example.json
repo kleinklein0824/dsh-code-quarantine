@@ -1,0 +1,40 @@
+{
+  "_comment": "把 <SKILL_DIR> 替换为本 skill 的绝对路径，合并进项目或用户的 settings.json。也可以直接跑 python scripts/install_hooks.py 自动装。",
+  "hooks": {
+    "PreToolUse": [
+      {
+        "matcher": "Write|Edit|MultiEdit|NotebookEdit",
+        "hooks": [
+          {
+            "type": "command",
+            "command": "python \"<SKILL_DIR>/scripts/hook_pre_write.py\"",
+            "timeout": 30
+          }
+        ]
+      },
+      {
+        "_comment": "curl … | bash 这类命令不经过任何文件写入，写侧 hook 看不见，需要独立一道闸。",
+        "matcher": "Bash|PowerShell",
+        "hooks": [
+          {
+            "type": "command",
+            "command": "python \"<SKILL_DIR>/scripts/hook_shell.py\"",
+            "timeout": 30
+          }
+        ]
+      }
+    ],
+    "PostToolUse": [
+      {
+        "matcher": "Bash|Write|Edit|MultiEdit",
+        "hooks": [
+          {
+            "type": "command",
+            "command": "python \"<SKILL_DIR>/scripts/hook_post_write.py\"",
+            "timeout": 30
+          }
+        ]
+      }
+    ]
+  }
+}

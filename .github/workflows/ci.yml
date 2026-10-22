@@ -1,0 +1,118 @@
+name: CI
+
+on:
+  push:
+    branches: [main, master]
+  pull_request:
+  workflow_dispatch:
+
+permissions:
+  contents: read
+
+jobs:
+  test:
+    name: ${{ matrix.os }} / py${{ matrix.python }}
+    runs-on: ${{ matrix.os }}
+    strategy:
+      fail-fast: false
+      matrix:
+        os: [ubuntu-latest, windows-latest]
+        python: ["3.9", "3.12", "3.13"]
+        include:
+          - os: ubuntu-latest
+            python: "3.10"
+          - os: ubuntu-latest
+            python: "3.11"
+
+    steps:
+      - uses: actions/checkout@v4
+
+      - uses: actions/setup-python@v5
+        with:
+          python-version: ${{ matrix.python }}
+
+      - name: 单元测试
+        run: python -m unittest discover -s tests -v
+
+      - name: 端到端功能检测（42 项）
+        # 矩阵里每个解释器都跑一遍：入口层的 bug（编码、退出码、子进程调用）
+        # 恰恰是最容易随平台与版本漂移的那一类。
+        run: python tests/functional_sweep.py --quick
+
+      - name: 地狱式功能测试（100 例）
+        run: python tests/brutal_suite.py --report brutal-report.md
+
+      - name: idea.md 逐条验收（83 条）
+        run: python tests/idea_matrix.py
+
+      - name: 自检（工具扫自己）
+        run: python scripts/quarantine.py . --fail-on none
+
+      - name: 上传测试报告
+        if: always()
+        uses: actions/upload-artifact@v4
+        with:
+          name: brutal-report-${{ matrix.os }}-${{ matrix.python }}
+          path: brutal-report.md
+          if-no-files-found: ignore
+
+  realworld:
+    name: 真实库误报回归
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-python@v5
+        with:
+          python-version: "3.12"
+
+      # 误报上限写死在脚本里：CRITICAL 必须为 0，WARNING/INFO 不得超过基线。
+      # 装的是被扫描的真实库，不是本项目的依赖——工具本身零依赖。
+      - name: 安装被扫描的真实库
+        run: pip install starlette pydantic fastapi rich sqlalchemy click httpx anyio
+
+      - name: 误报回归
+        run: python tests/realworld_regression.py
+
+  dsh-plugin:
+    name: DSH 写入闸门插件
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-python@v5
+        with:
+          python-version: "3.12"
+      - uses: actions/setup-node@v4
+        with:
+          node-version: "22"
+
+      # 决策层测试自带假 Cordis 上下文，不依赖 harness 包，任何机器都能跑。
+      - name: 决策层（假上下文 + 真扫描器）
+        run: node dsh-plugin/test-gate.mjs
+
+      # 注册表层与加载器层需要 harness 包；CI 上没有 profile，脚本会打印 SKIP 并退出 0。
+      - name: 注册表层 / 加载器层
+        run: |
+          node dsh-plugin/test-e2e.mjs
+          node dsh-plugin/test-loader.mjs
+
+      # 状态机与卡片交互不需要 harness：test-client 自带一个极简渲染器，
+      # 因为它要断言的正是「点开卡片后再点卡片内部不能关闭」这类真实交互回归。
+      - name: 状态机 / 卡片交互
+        run: |
+          node dsh-plugin/test-state.mjs
+          node dsh-plugin/test-client.mjs
+
+  no-key-degradation:
+    name: 无密钥降级检查
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-python@v5
+        with:
+          python-version: "3.12"
+      - name: 未配置 AI 时必须仍能出结论
+        env:
+          DSH_QUARANTINE_LLM_API_KEY: ""
+        run: |
+          python scripts/quarantine.py . --llm --fail-on none | tee out.txt
+          grep -q "未启用" out.txt

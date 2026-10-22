@@ -1,0 +1,15 @@
+# 豁免规则：每行 "rule_id 路径 glob"，用 # 注释
+# rule_id 写 * 表示豁免该路径下的全部规则。路径为相对项目根目录的 POSIX 路径。
+
+# 示例：供应商提供的第三方代码不参与广告注入判定
+AD001  vendor/**
+AD002  vendor/**
+
+# 示例：本项目自建中转域名写在注释里属于正常文档
+AD001  src/gateway/*.py
+
+# 示例：CI 脚本里的官方安装命令（已知可信，走内部镜像）
+SC102  ci/install_toolchain.sh
+
+# 示例：测试夹具故意包含恶意样本
+*  tests/fixtures/**

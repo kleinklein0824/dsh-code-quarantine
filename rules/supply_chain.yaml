@@ -1,0 +1,143 @@
+# 第二层：供应链投毒与恶意代码特征检测
+# 注意：正则一律用单引号包裹，反斜杠保持单层，避免 YAML 转义歧义。
+version: 1
+category: supply_chain
+
+rules:
+  - id: SC101
+    title: 危险动态执行调用
+    severity: warning
+    enabled: true
+    message: 使用 exec/eval/compile/__import__/os.system 等动态执行能力
+    suggestion: 改为显式调用或安全的解析方式；确需动态执行时限制输入来源并加白名单校验
+    data:
+      escalate_when_dynamic: true
+      python_calls: [exec, eval, compile, __import__]
+      # 属性形式：os.system / os.popen 的 func 是 ast.Attribute 而不是 ast.Name，
+      # 只列在 python_calls 里永远匹配不到，必须单独一张表。
+      python_attr_calls: [os.system, os.popen, commands.getoutput, commands.getstatusoutput]
+      js_calls: [eval, Function, child_process.exec, execSync, vm.runInNewContext, vm.runInThisContext]
+      shell_calls: [sh -c, bash -c, eval, source /dev/stdin]
+
+  - id: SC102
+    title: Shell 管道远程执行
+    severity: critical
+    enabled: true
+    message: 检测到 curl/wget 下载后直接管道执行，或反弹 shell 特征
+    suggestion: 下载到临时文件并校验签名/哈希后再执行；禁止在构建脚本中出现远程管道执行
+    data:
+      patterns:
+        - 'curl\s+[^|\n]*\|\s*(?:sudo\s+)?(?:ba|z|k)?sh'
+        - 'wget\s+[^|\n]*(?:--output-document[=\s]|-[A-Za-z]*O[=\s-]?)[^|\n]*\|\s*(?:sudo\s+)?(?:ba|z|k)?sh'
+        - 'base64\s+(?:-d|--decode)\s*\|\s*(?:ba|z)?sh'
+        - 'curl\s+[^|\n]*\|\s*(?:sudo\s+)?python[0-9.]*'
+        - 'Invoke-WebRequest[^|\n]*\|\s*Invoke-Expression'
+        - 'iwr\s+[^|\n]*\|\s*iex'
+        - 'powershell(?:\.exe)?\s+-e(?:nc|ncodedcommand)?\s'
+        - 'nc\s+-e\s+/bin/(?:ba)?sh'
+        - '/dev/tcp/\d'
+
+  - id: SC103
+    title: 敏感凭据读取并外发
+    severity: critical
+    enabled: true
+    message: 读取凭据/密钥类文件或环境变量，并存在出站网络请求
+    suggestion: 删除该读写链路；凭据只能通过受控的密钥管理服务注入，且不得随请求外发
+    data:
+      sensitive_paths: [.aws/credentials, .aws/config, .ssh/id_rsa, .ssh/id_ed25519, .git-credentials, .pypirc, .docker/config.json, .kube/config, .netrc, .pgpass, Login Data, id_rsa, credentials.json, service-account.json, .npmrc, .env]
+      secret_env: [AWS_SECRET_ACCESS_KEY, AWS_ACCESS_KEY_ID, GITHUB_TOKEN, GH_TOKEN, NPM_TOKEN, PYPI_TOKEN, OPENAI_API_KEY, ANTHROPIC_API_KEY, DATABASE_URL, DB_PASSWORD, SECRET_KEY, PRIVATE_KEY, ACCESS_TOKEN, API_KEY]
+      network_sinks: [requests., httpx., urllib, urlopen, socket., aiohttp, fetch(, axios, http.request, net.connect, WebClient, HttpClient]
+
+  - id: SC104
+    title: 环境变量整体外传
+    severity: critical
+    enabled: true
+    message: 将完整环境变量集合序列化后发送到外部地址
+    suggestion: 只传递显式白名单内的非敏感配置项
+    data:
+      env_dump_tokens: [dict(os.environ), os.environ.copy(), JSON.stringify(process.env), Object.entries(process.env)]
+
+  - id: SC105
+    title: 编码/混淆载荷
+    severity: critical
+    enabled: true
+    message: 长编码串解码后包含 URL、Shell 命令或敏感路径
+    suggestion: 删除编码载荷；源码中不应出现可执行内容的编码形式
+    data:
+      min_blob_len: 40
+      max_depth: 2
+
+  - id: SC106
+    title: 未锁定版本的依赖
+    severity: info
+    enabled: true
+    message: 依赖声明未锁定版本，存在被上游替换的风险
+    suggestion: 固定版本并提交 lockfile
+    data:
+      unpinned_tokens: ['*', latest, x]
+
+  - id: SC107
+    title: 安装脚本钩子含网络下载或命令执行
+    severity: critical
+    enabled: true
+    message: preinstall/postinstall/prepare 或 setup.py cmdclass 中出现下载、解码或执行
+    suggestion: 移除安装期副作用；必要的二进制准备改为显式命令并校验哈希
+    data:
+      hook_keys: [preinstall, install, postinstall, prepare, prepublish, preuninstall]
+      suspicious_tokens: [curl, wget, base64, eval, exec, child_process, node -e, sh -c, powershell, Invoke-Expression, os.system, subprocess]
+
+  - id: SC108
+    title: 依赖名拼写欺诈（typosquatting）
+    severity: warning
+    enabled: true
+    message: 依赖名与知名包高度相似，疑似仿冒
+    suggestion: 核对包名来源与 registry；确认后在 allowlist.similar_packages 中登记
+    data:
+      max_distance: 2
+
+  - id: SC109
+    title: 非官方 registry / 索引源
+    severity: warning
+    enabled: true
+    message: 依赖解析指向非官方 registry 或索引源
+    suggestion: 恢复官方 registry；私有源需在 allowlist.registries 中登记
+    data:
+      official: [registry.npmjs.org, registry.yarnpkg.com, pypi.org, files.pythonhosted.org]
+
+  - id: SC110
+    title: 关闭 TLS 校验
+    severity: warning
+    enabled: true
+    message: 请求中显式关闭证书校验
+    suggestion: 恢复证书校验；自签环境通过 CA 配置解决
+    data:
+      patterns:
+        - 'verify\s*=\s*False'
+        - 'rejectUnauthorized\s*:\s*false'
+        - 'strictSSL\s*:\s*false'
+        - 'InsecureSkipVerify\s*:\s*true'
+        - 'NODE_TLS_REJECT_UNAUTHORIZED\s*=\s*0'
+        - 'curl\s+-k\b'
+
+  - id: SC111
+    title: 赋予可执行权限后立即执行
+    severity: critical
+    enabled: true
+    message: 下载/落地脚本后 chmod +x 并立刻运行，是免管道投毒的常见变体
+    suggestion: 下载后先校验签名或哈希，再以显式解释器运行；不要对来源不明的文件授予可执行权限
+    data:
+      # 同一行或紧邻的下一行出现「执行刚 chmod 的那个文件」
+      chmod_pattern: 'chmod\s+(?:[0-7]{3,4}|[ugoa]*\+[rwxst]+)\s+(\S+)'
+      exec_pattern: '(?:\./|\bsh\s+|\bbash\s+|\bsudo\s+|/tmp/|\$HOME/|~/)(\S*)'
+      window_lines: 2
+
+  - id: SC112
+    title: 动态模块加载（require/import 变量拼接）
+    severity: warning
+    enabled: true
+    message: require()/import() 的参数不是字面量，模块路径由运行时值拼接
+    suggestion: 改为静态可枚举的字面量映射表；确需动态加载时用白名单校验后再 require
+    data:
+      patterns:
+        - '(?<![\w$.])require\s*\(\s*([^)]*)\)'
+        - '(?<![\w$.])import\s*\(\s*([^)]*)\)'

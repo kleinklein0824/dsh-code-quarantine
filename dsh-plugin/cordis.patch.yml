@@ -1,0 +1,4 @@
+# dsh bundle patch: inserts this bundle into a profile's layer stack.
+- insert:
+    - id: dsh-code-quarantine
+      name: 'dsh-code-quarantine'

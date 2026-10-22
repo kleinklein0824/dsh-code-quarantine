@@ -1,0 +1,1045 @@
+<!DOCTYPE html>
+<html lang="zh-CN">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>荷鲁斯之眼 · dsh-code-quarantine</title>
+<link rel="icon" href="/favicon.svg" type="image/svg+xml">
+<link rel="alternate icon" href="/favicon.ico">
+<style>
+  :root {
+    --bg: #f6f7f9;
+    --panel: #ffffff;
+    --border: #e3e6ea;
+    --text: #1f2328;
+    --muted: #6b7280;
+    --accent: #2563eb;
+    --accent-soft: #eff4ff;
+    --critical: #d92d20;
+    --critical-soft: #fef3f2;
+    --warning: #b54708;
+    --warning-soft: #fffaeb;
+    --info: #0e7090;
+    --info-soft: #ecfdff;
+    --ok: #067647;
+    --ok-soft: #ecfdf3;
+    --radius: 10px;
+  }
+  * { box-sizing: border-box; }
+  body {
+    margin: 0; background: var(--bg); color: var(--text);
+    font: 14px/1.55 system-ui, -apple-system, "Segoe UI", "Microsoft YaHei", sans-serif;
+  }
+  code, .mono { font-family: ui-monospace, SFMono-Regular, Consolas, "Courier New", monospace; }
+
+  header {
+    background: var(--panel); border-bottom: 1px solid var(--border);
+    padding: 14px 22px; display: flex; align-items: center; gap: 14px; flex-wrap: wrap;
+    position: sticky; top: 0; z-index: 20;
+  }
+  header h1 { font-size: 15px; margin: 0; font-weight: 650; letter-spacing: .2px; }
+  header h1 span { color: var(--muted); font-weight: 400; margin-left: 8px; font-size: 12px; }
+  .brand { display: flex; align-items: center; gap: 10px; }
+  .brand-mark { width: 30px; height: 30px; display: block; flex: none; }
+  .target-box { display: flex; align-items: center; gap: 8px; margin-left: auto; }
+  .target-box input {
+    width: 460px; max-width: 46vw; padding: 7px 10px; border: 1px solid var(--border);
+    border-radius: 8px; background: #fbfcfd; color: var(--text); font-size: 13px;
+  }
+
+  nav { display: flex; gap: 4px; padding: 10px 22px 0; background: var(--panel); border-bottom: 1px solid var(--border); }
+  nav button {
+    border: 0; background: transparent; padding: 9px 14px; font-size: 13.5px; color: var(--muted);
+    cursor: pointer; border-bottom: 2px solid transparent; font-weight: 500;
+  }
+  nav button.active { color: var(--accent); border-bottom-color: var(--accent); }
+  nav button:hover { color: var(--text); }
+
+  main { padding: 18px 22px 60px; max-width: 1280px; margin: 0 auto; }
+  .view { display: none; }
+  .view.active { display: block; }
+
+  .card {
+    background: var(--panel); border: 1px solid var(--border); border-radius: var(--radius);
+    padding: 16px 18px; margin-bottom: 16px;
+  }
+  .card h2 { font-size: 13px; margin: 0 0 12px; font-weight: 650; letter-spacing: .3px; }
+  .card h2 small { color: var(--muted); font-weight: 400; margin-left: 8px; }
+
+  .toolbar { display: flex; align-items: center; gap: 10px; flex-wrap: wrap; }
+  .toolbar .spacer { flex: 1; }
+
+  button.btn {
+    border: 1px solid var(--border); background: #fff; color: var(--text);
+    padding: 8px 14px; border-radius: 8px; font-size: 13px; cursor: pointer; font-weight: 500;
+  }
+  button.btn:hover { background: #f8fafc; }
+  button.btn.primary { background: var(--accent); border-color: var(--accent); color: #fff; }
+  button.btn.primary:hover { background: #1d4ed8; }
+  button.btn.ghost { border-color: transparent; background: transparent; color: var(--muted); }
+  button.btn.ghost:hover { background: #f1f3f5; color: var(--text); }
+  button.btn:disabled { opacity: .55; cursor: not-allowed; }
+
+  select, input[type=text], textarea {
+    border: 1px solid var(--border); border-radius: 8px; padding: 7px 10px;
+    font-size: 13px; background: #fff; color: var(--text); font-family: inherit;
+  }
+  textarea { width: 100%; min-height: 120px; resize: vertical; line-height: 1.6; }
+  label.check { display: inline-flex; align-items: center; gap: 6px; font-size: 13px; color: var(--muted); cursor: pointer; }
+
+  .stats { display: grid; grid-template-columns: repeat(4, minmax(0, 1fr)); gap: 12px; margin-bottom: 14px; }
+  .stat { border: 1px solid var(--border); border-radius: var(--radius); padding: 12px 14px; background: #fff; }
+  .stat .k { font-size: 12px; color: var(--muted); }
+  .stat .v { font-size: 22px; font-weight: 650; margin-top: 2px; }
+  .stat.critical .v { color: var(--critical); }
+  .stat.warning .v { color: var(--warning); }
+  .stat.info .v { color: var(--info); }
+  .stat.ok .v { color: var(--ok); }
+
+  .badge {
+    display: inline-flex; align-items: center; gap: 6px; padding: 3px 9px; border-radius: 999px;
+    font-size: 12px; font-weight: 600; border: 1px solid transparent;
+  }
+  .badge.BLOCK { color: var(--critical); background: var(--critical-soft); border-color: #fecdca; }
+  .badge.REVIEW { color: var(--warning); background: var(--warning-soft); border-color: #fedf89; }
+  .badge.SAFE { color: var(--ok); background: var(--ok-soft); border-color: #abefc6; }
+  .badge.CRITICAL { color: var(--critical); background: var(--critical-soft); }
+  .badge.WARNING { color: var(--warning); background: var(--warning-soft); }
+  .badge.INFO { color: var(--info); background: var(--info-soft); }
+
+  .chips { display: flex; gap: 8px; flex-wrap: wrap; margin: 12px 0; }
+  .chip {
+    border: 1px solid var(--border); background: #fff; border-radius: 999px; padding: 5px 12px;
+    font-size: 12.5px; cursor: pointer; color: var(--muted);
+  }
+  .chip.active { background: var(--accent-soft); border-color: #c7d7fe; color: var(--accent); font-weight: 600; }
+
+  table { width: 100%; border-collapse: collapse; }
+  th {
+    text-align: left; font-size: 12px; color: var(--muted); font-weight: 600;
+    padding: 8px 10px; border-bottom: 1px solid var(--border); white-space: nowrap;
+  }
+  td { padding: 9px 10px; border-bottom: 1px solid #f0f2f4; vertical-align: top; font-size: 13px; }
+  tr.finding:hover td { background: #fafbfc; }
+  .loc { color: var(--muted); font-size: 12.5px; }
+  .msg { color: var(--text); }
+  .evidence {
+    margin-top: 6px; background: #f8f9fb; border: 1px solid var(--border); border-radius: 6px;
+    padding: 8px 10px; font-size: 12.5px; color: #374151; white-space: pre-wrap; word-break: break-all;
+  }
+  .fix { margin-top: 6px; font-size: 12.5px; color: var(--muted); }
+  .fix b { color: var(--text); font-weight: 600; }
+
+  /* 修复历史：每条记录一块，改前改后用等宽字体对齐，方便一眼看出差异。 */
+  .hist { border: 1px solid var(--border); border-radius: 8px; padding: 10px 12px; margin-bottom: 10px; }
+  .hist-head { display: flex; gap: 10px; align-items: baseline; flex-wrap: wrap; font-size: 12.5px; color: var(--muted); }
+  .hist-head b { color: var(--text); font-weight: 600; }
+  .hist-diff {
+    margin-top: 8px; background: #f8f9fb; border: 1px solid var(--border); border-radius: 6px;
+    padding: 8px 10px; font-family: ui-monospace, SFMono-Regular, Consolas, "Courier New", monospace; font-size: 12px;
+    white-space: pre-wrap; word-break: break-all;
+  }
+  .hist-before { color: var(--critical); }
+  .hist-after { color: var(--ok); }
+  .hist-meta { margin-top: 6px; font-size: 12px; color: var(--muted); word-break: break-all; }
+  .hist-status { padding: 0 6px; border: 1px solid currentColor; border-radius: 6px; font-size: 11px; line-height: 16px; }
+  .hist-status-reverted { color: var(--warning); }
+  .hist-status-stale { color: var(--warning); }
+  .hist-status-gone { color: var(--muted); }
+  .hist-dim .hist-after { opacity: .45; }
+  .hidden { display: none !important; }
+
+  .actions { display: flex; gap: 2px; justify-content: flex-end; flex-wrap: nowrap; }
+  .actions .btn { padding: 4px 7px; font-size: 12px; border-radius: 6px; white-space: nowrap; }
+
+  .event-bar {
+    display: flex; align-items: center; gap: 10px; padding: 10px 14px; margin-bottom: 14px;
+    border-radius: var(--radius); border: 1px solid #fecdca; background: var(--critical-soft);
+    font-size: 13px; color: #7a271a;
+  }
+  .event-bar.warn { border-color: #fedf89; background: var(--warning-soft); color: #7a2e0e; }
+  .event-bar b { font-weight: 650; }
+  .event-bar .spacer { flex: 1; }
+
+  .modal {
+    position: fixed; inset: 0; background: rgba(16,24,40,.42); z-index: 60;
+    display: flex; align-items: center; justify-content: center; padding: 24px;
+  }
+  .modal-card {
+    background: #fff; border-radius: 12px; width: min(760px, 100%); max-height: 88vh;
+    display: flex; flex-direction: column; box-shadow: 0 20px 48px rgba(16,24,40,.24);
+  }
+  .modal-head { display: flex; align-items: flex-start; gap: 12px; padding: 16px 18px 10px; }
+  .modal-head .spacer { flex: 1; }
+  .modal-ctx {
+    margin: 0; padding: 8px 18px; font-size: 12px; color: var(--muted); background: #fbfcfd;
+    white-space: pre-wrap; overflow: auto; max-height: 120px;
+    font-family: ui-monospace, Consolas, monospace;
+  }
+  .modal-body { padding: 10px 18px; overflow: auto; }
+  .modal-body textarea {
+    width: 100%; min-height: 92px; font-family: ui-monospace, Consolas, monospace;
+    font-size: 13px; line-height: 1.6;
+  }
+  .modal-foot {
+    display: flex; align-items: center; gap: 10px; padding: 12px 18px 16px;
+    border-top: 1px solid var(--border);
+  }
+  .modal-foot .spacer { flex: 1; }
+  .prompt-box {
+    white-space: pre-wrap; font-size: 12.5px; line-height: 1.7; background: #f8f9fb;
+    border: 1px solid var(--border); border-radius: 8px; padding: 12px; max-height: 46vh; overflow: auto;
+  }
+
+  .ai-grid { display: grid; grid-template-columns: repeat(3, minmax(0, 1fr)); gap: 14px; }
+  .ai-grid label { display: flex; flex-direction: column; gap: 6px; font-size: 12.5px; color: var(--muted); }
+  .ai-grid input, .ai-grid select { width: 100%; }
+  @media (max-width: 1000px) { .ai-grid { grid-template-columns: 1fr 1fr; } }
+
+  .rule-cat { margin-top: 18px; overflow-x: auto; }
+  .rule-cat h3 { font-size: 12px; color: var(--muted); margin: 0 0 8px; font-weight: 650; letter-spacing: .4px; }
+  /* 规则行的五个单元格有四个是固定列宽，窄屏上加起来比容器还宽。
+     让表格在自己的容器里横向滚动，而不是把整页撑宽——整页横向滚动时
+     扫描页和规则页会共享同一个滚动位置，看起来像布局错位。 */
+  @media (max-width: 560px) {
+    .rule-cat td, .rule-cat th { padding: 8px 6px; }
+    .rule-cat td:last-child { display: none; }
+  }
+  .switch { position: relative; width: 38px; height: 21px; display: inline-block; }
+  .switch input { opacity: 0; width: 0; height: 0; }
+  .switch span {
+    position: absolute; inset: 0; background: #d7dbe0; border-radius: 999px;
+    transition: background .15s; cursor: pointer;
+  }
+  .switch span::before {
+    content: ""; position: absolute; width: 17px; height: 17px; left: 2px; top: 2px;
+    background: #fff; border-radius: 50%; transition: transform .15s; box-shadow: 0 1px 2px rgba(0,0,0,.2);
+  }
+  .switch input:checked + span { background: var(--accent); }
+  .switch input:checked + span::before { transform: translateX(17px); }
+  .rule-disabled td { opacity: .55; }
+
+  .hint { font-size: 12.5px; color: var(--muted); margin: 6px 0 10px; line-height: 1.7; }
+  .footer { color: var(--muted); font-size: 12px; padding: 0 22px 28px; max-width: 1280px; margin: 0 auto; }
+  .footer code { background: #eef1f4; padding: 1px 5px; border-radius: 4px; }
+
+  #toast {
+    position: fixed; left: 50%; bottom: 28px; transform: translateX(-50%) translateY(20px);
+    background: #1f2328; color: #fff; padding: 10px 18px; border-radius: 8px; font-size: 13px;
+    opacity: 0; pointer-events: none; transition: all .2s; z-index: 50; max-width: 70vw;
+  }
+  #toast.show { opacity: 1; transform: translateX(-50%) translateY(0); }
+  #toast.error { background: var(--critical); }
+  .spinner {
+    width: 13px; height: 13px; border: 2px solid rgba(255,255,255,.4); border-top-color: #fff;
+    border-radius: 50%; animation: spin .7s linear infinite; display: inline-block; vertical-align: -2px;
+  }
+  @keyframes spin { to { transform: rotate(360deg); } }
+</style>
+</head>
+<body>
+
+<header>
+  <div class="brand">
+    <img class="brand-mark" src="/favicon.svg" alt="荷鲁斯之眼" width="30" height="30">
+    <h1>dsh-code-quarantine<span>控制面板</span></h1>
+  </div>
+  <div class="target-box">
+    <input id="target" type="text" spellcheck="false" placeholder="项目目录" title="面板启动时 --target 指定的目录">
+    <button class="btn" id="btn-reload">重新载入</button>
+  </div>
+</header>
+
+<nav>
+  <button data-view="scan" class="active">扫描结果</button>
+  <button data-view="rules">规则开关</button>
+  <button data-view="allow">白名单</button>
+  <button data-view="ignore">豁免</button>
+  <button data-view="ai">AI 复核</button>
+  <button data-view="history">修复历史</button>
+</nav>
+
+<main>
+  <!-- ======================= 扫描 ======================= -->
+  <section class="view active" id="view-scan">
+    <div class="event-bar hidden" id="event-bar">
+      <span id="event-text"></span>
+      <div class="spacer"></div>
+      <button class="btn ghost" id="event-goto">重新扫描并定位</button>
+      <button class="btn ghost" id="event-close">知道了</button>
+    </div>
+    <div class="card">
+      <div class="toolbar">
+        <select id="mode">
+          <option value="full">全量扫描</option>
+          <option value="incremental">增量（git 变更）</option>
+        </select>
+        <label class="check"><input type="checkbox" id="include-tests"> 含测试目录</label>
+        <label class="check"><input type="checkbox" id="use-llm" title="把规则命中交给模型复核，并补漏"> 用 AI 复核</label>
+        <div class="spacer"></div>
+        <button class="btn" id="btn-baseline" title="记录当前公共接口签名，供 AR004 比对">生成签名基线</button>
+        <button class="btn primary" id="btn-scan">开始扫描</button>
+      </div>
+      <div class="stats" id="stats" style="margin-top:16px">
+        <div class="stat"><div class="k">判定</div><div class="v" id="s-verdict">—</div></div>
+        <div class="stat critical"><div class="k">CRITICAL</div><div class="v" id="s-critical">0</div></div>
+        <div class="stat warning"><div class="k">WARNING</div><div class="v" id="s-warning">0</div></div>
+        <div class="stat info"><div class="k">INFO</div><div class="v" id="s-info">0</div></div>
+      </div>
+      <div class="chips" id="chips">
+        <button class="chip active" data-sev="ALL">全部</button>
+        <button class="chip" data-sev="CRITICAL">仅 CRITICAL</button>
+        <button class="chip" data-sev="WARNING">仅 WARNING</button>
+        <button class="chip" data-sev="INFO">仅 INFO</button>
+        <input id="search" type="text" placeholder="过滤规则 / 文件 / 关键词" style="margin-left:auto;width:240px">
+      </div>
+      <table>
+        <thead><tr><th style="width:88px">级别</th><th style="width:74px">规则</th><th style="width:230px">位置</th><th>说明</th><th style="width:236px"></th></tr></thead>
+        <tbody id="findings">
+          <tr><td colspan="5" class="hint">还没有扫描结果，点右上角「开始扫描」。</td></tr>
+        </tbody>
+      </table>
+    </div>
+  </section>
+
+  <!-- ======================= 规则 ======================= -->
+  <section class="view" id="view-rules">
+    <div class="card">
+      <h2>规则开关与级别<small>改动写入目标目录的 .dsh-quarantine.yml</small></h2>
+      <p class="hint">关掉的规则完全不参与判定；把 CRITICAL 降级会直接影响 hook 是否阻塞写入与 CI 是否失败，请谨慎。</p>
+      <div id="rule-list"></div>
+      <div class="toolbar" style="margin-top:18px">
+        <button class="btn" id="btn-rules-reset">恢复默认</button>
+        <div class="spacer"></div>
+        <span class="hint" id="rules-dirty" style="margin:0"></span>
+        <button class="btn primary" id="btn-save-rules">保存配置</button>
+      </div>
+    </div>
+  </section>
+
+  <!-- ======================= 白名单 ======================= -->
+  <section class="view" id="view-allow">
+    <div class="card">
+      <h2>域名与源白名单<small>每行一条</small></h2>
+      <div style="display:grid;grid-template-columns:1fr 1fr;gap:16px">
+        <div>
+          <h2 style="margin-bottom:6px">信任域名<small>不判为广告注入</small></h2>
+          <p class="hint">公司内网、私有 CDN、自建中转站都放这里。</p>
+          <textarea id="allow-domains" spellcheck="false" placeholder="mycorp.com&#10;api.mycorp.com"></textarea>
+        </div>
+        <div>
+          <h2 style="margin-bottom:6px">黑名单域名<small>命中即告警</small></h2>
+          <p class="hint">已知的中转站/推广域名；出现在代码里会升级为 CRITICAL。</p>
+          <textarea id="allow-blocked" spellcheck="false" placeholder="relay-fast-01.xyz"></textarea>
+        </div>
+        <div>
+          <h2 style="margin-bottom:6px">私有 registry<small>SC109 放行</small></h2>
+          <p class="hint">npm / pip 的私有源地址（只写主机名）。</p>
+          <textarea id="allow-registries" spellcheck="false" placeholder="npm.mycorp.com&#10;pypi.mycorp.com"></textarea>
+        </div>
+        <div>
+          <h2 style="margin-bottom:6px">允许的 CDN<small>AD005 降级为 WARNING</small></h2>
+          <p class="hint">外链脚本允许的 CDN 域名；不在列表里的直接 CRITICAL。</p>
+          <textarea id="allow-cdn" spellcheck="false" placeholder="cdn.jsdelivr.net&#10;unpkg.com"></textarea>
+        </div>
+      </div>
+      <div class="toolbar" style="margin-top:16px">
+        <div class="spacer"></div>
+        <button class="btn primary" id="btn-save-allow">保存白名单</button>
+      </div>
+    </div>
+  </section>
+
+  <!-- ======================= 豁免 ======================= -->
+  <section class="view" id="view-ignore">
+    <div class="card">
+      <h2>豁免清单<small>.dsh-quarantine-ignore</small></h2>
+      <p class="hint">每行格式：<code>rule_id 路径glob</code>，rule_id 写 <code>*</code> 表示该路径下全部规则。
+        在扫描结果里点「豁免」会自动追加一行，也可以在这里手工编辑。</p>
+      <textarea id="ignore-lines" spellcheck="false" style="min-height:220px" placeholder="AD001 vendor/**&#10;SC102 ci/install_toolchain.sh"></textarea>
+      <div class="toolbar" style="margin-top:16px">
+        <div class="spacer"></div>
+        <button class="btn primary" id="btn-save-ignore">保存豁免</button>
+      </div>
+    </div>
+  </section>
+  <!-- ======================= AI 复核 ======================= -->
+  <section class="view" id="view-ai">
+    <div class="card">
+      <h2>AI 复核<small>规则抓结构，模型抓语义</small></h2>
+      <p class="hint">规则引擎只认结构锚点，抓不到"逻辑像后门""注释在骗人"这类语义问题。配上模型后，
+        扫描会把规则命中的片段交给模型判断（降误报），并可对无命中文件做一次补漏。
+        <b>没有密钥时这一层完全跳过，报告里会写明"未启用"，不会假装复核过。</b></p>
+      <div class="ai-grid">
+        <label>接口协议
+          <select id="ai-provider">
+            <option value="openai">OpenAI 兼容（/chat/completions）</option>
+            <option value="anthropic">Anthropic（/v1/messages）</option>
+          </select>
+        </label>
+        <label>Base URL
+          <input id="ai-base" type="text" spellcheck="false" placeholder="https://api.openai.com/v1">
+        </label>
+        <label>模型
+          <input id="ai-model" type="text" spellcheck="false" placeholder="留空则用检测到的对话模型">
+        </label>
+        <label>密钥环境变量名
+          <input id="ai-key-env" type="text" spellcheck="false" placeholder="DSH_QUARANTINE_LLM_API_KEY">
+        </label>
+        <label>临时密钥（不推荐，会明文写入配置）
+          <input id="ai-key" type="password" spellcheck="false" placeholder="留空表示从环境变量读取">
+        </label>
+        <label>单文件最大字符
+          <input id="ai-maxchars" type="text" inputmode="numeric" placeholder="6000">
+        </label>
+        <label>请求超时（秒）
+          <input id="ai-timeout" type="text" inputmode="numeric" placeholder="30">
+        </label>
+        <label>单次扫描调用上限
+          <input id="ai-maxcalls" type="text" inputmode="numeric" placeholder="20">
+        </label>
+      </div>
+      <div class="toolbar" style="margin-top:16px">
+        <label class="check"><input type="checkbox" id="ai-enabled"> 启用 AI 复核</label>
+        <label class="check"><input type="checkbox" id="ai-deep"> 深度复核（无命中的文件也看，更贵）</label>
+        <div class="spacer"></div>
+        <span class="hint" id="ai-status" style="margin:0"></span>
+        <button class="btn" id="btn-ai-test">测试连接</button>
+        <button class="btn primary" id="btn-ai-save">保存</button>
+      </div>
+    </div>
+    <div class="card">
+      <h2>检测到的对话模型<small>只读模型名，不读凭据</small></h2>
+      <p class="hint">来自宿主环境变量（CODEBUDDY_CURRENT_MODEL_ID 等）。把它填进「模型」即可复用当前对话的模型名，
+        端点与密钥仍需你自己提供。</p>
+      <div class="mono" id="ai-host" style="font-size:13px"></div>
+    </div>
+  </section>
+
+  <!-- ======================= 修复历史 ======================= -->
+  <section class="view" id="view-history">
+    <div class="card">
+      <h2>修复历史<small>改了什么、谁改的、还能不能退回去</small></h2>
+      <p class="hint">每次「保存这一行」都会追加一条记录到 <code class="mono">.dsh-quarantine-history.jsonl</code>：
+        改前改后、对应规则、备份路径、改完还剩几条。<b>只读</b>——历史是旁路，写历史失败不会让修复本身失败。</p>
+      <div class="toolbar" style="margin-top:12px">
+        <span class="hint" id="history-total" style="margin:0"></span>
+        <div class="spacer"></div>
+        <button class="btn" id="btn-history-reload">刷新</button>
+      </div>
+      <div id="history-list" style="margin-top:14px"></div>
+    </div>
+  </section>
+</main>
+
+<div class="footer" id="footer"></div>
+
+<div class="modal hidden" id="modal">
+  <div class="modal-card">
+    <div class="modal-head">
+      <div>
+        <b id="modal-title">编辑</b>
+        <div class="loc mono" id="modal-sub"></div>
+      </div>
+      <div class="spacer"></div>
+      <button class="btn ghost" id="modal-close">关闭</button>
+    </div>
+    <pre class="modal-ctx" id="modal-before"></pre>
+    <div class="modal-body">
+      <textarea id="modal-text" spellcheck="false"></textarea>
+      <div class="prompt-box hidden" id="modal-prompt"></div>
+    </div>
+    <pre class="modal-ctx" id="modal-after"></pre>
+    <div class="modal-foot">
+      <span class="hint" id="modal-status" style="margin:0"></span>
+      <div class="spacer"></div>
+      <button class="btn hidden" id="modal-copy">复制指令</button>
+      <button class="btn hidden" id="modal-reveal">在编辑器打开</button>
+      <button class="btn primary hidden" id="modal-save">保存这一行</button>
+    </div>
+  </div>
+</div>
+
+<div id="toast"></div>
+
+<script>
+const TOKEN = new URLSearchParams(location.search).get('t') || '__PANEL_TOKEN__';
+
+const $ = (id) => document.getElementById(id);
+let STATE = null;
+let LAST_SCAN = null;
+let VISIBLE = [];
+let RULE_EDITS = {};        // rid -> {enabled, severity}
+let FILTER = { sev: 'ALL', text: '' };
+
+function toast(msg, isError) {
+  const el = $('toast');
+  el.textContent = msg;
+  el.className = 'show' + (isError ? ' error' : '');
+  clearTimeout(el._t);
+  el._t = setTimeout(() => { el.className = ''; }, 2600);
+}
+
+async function api(path, body) {
+  const opts = { headers: { 'X-Panel-Token': TOKEN } };
+  if (body !== undefined) {
+    opts.method = 'POST';
+    opts.headers['Content-Type'] = 'application/json';
+    opts.body = JSON.stringify(body);
+  }
+  const res = await fetch(path, opts);
+  const data = await res.json().catch(() => ({ error: '响应不是 JSON' }));
+  if (!res.ok || data.error) throw new Error(data.error || ('HTTP ' + res.status));
+  return data;
+}
+
+function target() { return $('target').value.trim(); }
+
+/* ------------------------------------------------------------ 视图切换 */
+function switchView(name) {
+  document.querySelectorAll('nav button').forEach(b => b.classList.toggle('active', b.dataset.view === name));
+  document.querySelectorAll('.view').forEach(v => v.classList.toggle('active', v.id === 'view-' + name));
+  // 历史只在打开该标签时读：它是 append-only 的日志文件，后台定时重读只会白烧 IO。
+  if (name === 'history') loadHistory();
+}
+
+document.querySelectorAll('nav button').forEach(btn => {
+  btn.onclick = () => { location.hash = btn.dataset.view; switchView(btn.dataset.view); };
+});
+
+/* 支持 #rules / #allow / #ignore 直达，以及 #scan:run 打开即扫描（便于做成看板链接） */
+function applyHash() {
+  const [view, action] = (location.hash || '').replace('#', '').split(':');
+  if (['scan', 'rules', 'allow', 'ignore', 'ai', 'history'].includes(view)) switchView(view);
+  if (view === 'scan' && action === 'run' && STATE) runScan();
+}
+window.addEventListener('hashchange', applyHash);
+
+/* ------------------------------------------------------------ 载入状态 */
+async function loadState(quiet) {
+  try {
+    // 输入框为空时交给服务端用它启动时的 --target，避免把 "." 解析成面板自身的 cwd
+    const t = target();
+    const data = await api('/api/state' + (t ? '?target=' + encodeURIComponent(t) : ''));
+    STATE = data;
+    $('target').value = data.target;
+    renderRules();
+    renderAllow();
+    renderLlm(data.llm || {});
+    $('ignore-lines').value = (data.ignore || []).join('\n');
+    $('footer').innerHTML =
+      '配置：<code>' + escapeHtml(data.files.config) + '</code>　' +
+      '豁免：<code>' + escapeHtml(data.files.ignore) + '</code>　' +
+      '版本 ' + escapeHtml(data.version);
+    if (data.warnings && data.warnings.length) {
+      toast('配置告警：' + data.warnings.join('；'), true);
+    } else if (!quiet) {
+      toast('已载入 ' + data.rules.length + ' 条规则');
+    }
+  } catch (err) {
+    toast('载入失败：' + err.message, true);
+  }
+}
+
+/* ------------------------------------------------------------ 规则页 */
+function renderRules() {
+  RULE_EDITS = {};
+  STATE.rules.forEach(r => { RULE_EDITS[r.id] = { enabled: r.enabled, severity: r.severity }; });
+  const groups = {};
+  STATE.rules.forEach(r => { (groups[r.category] = groups[r.category] || []).push(r); });
+  const names = { ad_injection: '第一层 · 广告注入', supply_chain: '第二层 · 供应链投毒', architecture_deviation: '第三层 · 架构偏离' };
+  const ORDER = ['ad_injection', 'supply_chain', 'architecture_deviation'];
+  let html = '';
+  ORDER.concat(Object.keys(groups).filter(k => !ORDER.includes(k))).forEach(cat => {
+    if (!groups[cat]) return;
+    html += '<div class="rule-cat"><h3>' + escapeHtml(names[cat] || cat) + '</h3><table><tbody>';
+    groups[cat].forEach(r => {
+      const changed = (r.severity !== r.default_severity) || (r.enabled !== r.default_enabled);
+      html += '<tr class="rule-row' + (r.enabled ? '' : ' rule-disabled') + '" data-id="' + r.id + '">' +
+        '<td style="width:64px" class="mono"><b>' + r.id + '</b></td>' +
+        '<td><div>' + escapeHtml(r.title) + '</div>' +
+        '<div class="hint" style="margin:2px 0 0">' + escapeHtml(r.message || '') + '</div></td>' +
+        '<td style="width:130px"><select data-sev-for="' + r.id + '">' +
+          ['CRITICAL','WARNING','INFO'].map(s =>
+            '<option value="' + s + '"' + (s === r.severity ? ' selected' : '') + '>' + s + '</option>').join('') +
+        '</select></td>' +
+        '<td style="width:70px;text-align:right"><label class="switch"><input type="checkbox" data-on-for="' + r.id + '"' +
+          (r.enabled ? ' checked' : '') + '><span></span></label></td>' +
+        '<td style="width:60px" class="hint">' + (changed ? '已改' : '') + '</td>' +
+        '</tr>';
+    });
+    html += '</tbody></table></div>';
+  });
+  $('rule-list').innerHTML = html;
+
+  $('rule-list').querySelectorAll('select[data-sev-for]').forEach(sel => {
+    sel.onchange = () => {
+      const rid = sel.dataset.sevFor;
+      RULE_EDITS[rid].severity = sel.value;
+      markDirty();
+    };
+  });
+  $('rule-list').querySelectorAll('input[data-on-for]').forEach(chk => {
+    chk.onchange = () => {
+      const rid = chk.dataset.onFor;
+      RULE_EDITS[rid].enabled = chk.checked;
+      chk.closest('tr').classList.toggle('rule-disabled', !chk.checked);
+      markDirty();
+    };
+  });
+  $('rules-dirty').textContent = '';
+}
+
+function markDirty() { $('rules-dirty').textContent = '有未保存的改动'; }
+
+async function saveRules() {
+  try {
+    const payload = { target: target(), rules: RULE_EDITS, allow: collectAllow(), ignore: collectIgnore(), llm: collectLlm() };
+    const res = await api('/api/save', payload);
+    toast('已保存：' + res.rules_loaded + ' 条规则生效');
+    await loadState(true);
+  } catch (err) { toast('保存失败：' + err.message, true); }
+}
+
+$('btn-save-rules').onclick = saveRules;
+$('btn-rules-reset').onclick = async () => {
+  RULE_EDITS = {};
+  STATE.rules.forEach(r => { RULE_EDITS[r.id] = { enabled: r.default_enabled, severity: r.default_severity }; });
+  await saveRules();
+};
+
+/* ------------------------------------------------------------ 白名单页 */
+function renderAllow() {
+  $('allow-domains').value = (STATE.allow.domains || []).join('\n');
+  $('allow-blocked').value = (STATE.allow.blocked_domains || []).join('\n');
+  $('allow-registries').value = (STATE.allow.registries || []).join('\n');
+  $('allow-cdn').value = (STATE.allow.cdn_domains || []).join('\n');
+}
+
+function lines(id) {
+  return $(id).value.split('\n').map(s => s.trim()).filter(Boolean);
+}
+function collectAllow() {
+  return {
+    domains: lines('allow-domains'),
+    blocked_domains: lines('allow-blocked'),
+    registries: lines('allow-registries'),
+    cdn_domains: lines('allow-cdn'),
+  };
+}
+function collectIgnore() {
+  return lines('ignore-lines');
+}
+
+$('btn-save-allow').onclick = async () => {
+  try {
+    await api('/api/save', { target: target(), rules: RULE_EDITS, allow: collectAllow(), ignore: collectIgnore(), llm: collectLlm() });
+    toast('白名单已保存');
+    await loadState(true);
+  } catch (err) { toast('保存失败：' + err.message, true); }
+};
+
+$('btn-save-ignore').onclick = async () => {
+  try {
+    await api('/api/save', { target: target(), rules: RULE_EDITS, allow: collectAllow(), ignore: collectIgnore(), llm: collectLlm() });
+    toast('豁免已保存');
+    await loadState(true);
+  } catch (err) { toast('保存失败：' + err.message, true); }
+};
+
+/* ------------------------------------------------------------ AI 复核 */
+function renderLlm(llm) {
+  $('ai-provider').value = llm.provider || 'openai';
+  $('ai-base').value = llm.base_url || '';
+  $('ai-model').value = llm.model || '';
+  // 回填文件里真正在用的变量名：硬编码默认值会在保存时把用户手写的
+  // api_key_env 覆盖掉，端点立刻失效且没有任何提示。
+  $('ai-key-env').value = llm.api_key_env || 'DSH_QUARANTINE_LLM_API_KEY';
+  $('ai-maxchars').value = llm.max_chars || 6000;
+  $('ai-timeout').value = llm.timeout || 30;
+  $('ai-maxcalls').value = llm.max_calls || 20;
+  $('ai-enabled').checked = llm.enabled !== false;
+  $('ai-host').textContent = llm.host_model
+    ? '当前对话模型：' + llm.host_model + '（来源：宿主环境变量）'
+    : '未检测到对话模型，请手动填写「模型」';
+  const bits = [];
+  if (llm.ready) bits.push('已配置：' + (llm.model || ''));
+  else bits.push('未配置完整（需要 base_url + model + 密钥）');
+  if (llm.has_key) bits.push('密钥 ' + (llm.key_hint || '已就绪'));
+  if (llm.source && llm.source !== 'none') bits.push('来源 ' + llm.source);
+  $('ai-status').textContent = bits.join(' · ');
+  // 只有「你自己环境变量里的端点」才自动勾上。项目配置随仓库一起来，
+  // 自动勾选等于打开别人的仓库点一下扫描就把源码发出去——CLI 有这道门禁，
+  // 面板不能没有。
+  $('use-llm').checked = !!llm.ready && llm.source !== 'project';
+}
+
+function collectLlm() {
+  const block = {
+    enabled: $('ai-enabled').checked,
+    provider: $('ai-provider').value,
+    base_url: $('ai-base').value.trim(),
+    model: $('ai-model').value.trim(),
+    api_key_env: $('ai-key-env').value.trim() || 'DSH_QUARANTINE_LLM_API_KEY',
+    max_chars: Number($('ai-maxchars').value) || 6000,
+    timeout: Number($('ai-timeout').value) || 30,
+    max_calls: Number($('ai-maxcalls').value) || 20,
+  };
+  const key = $('ai-key').value.trim();
+  if (key) block.api_key = key;
+  return block;
+}
+
+$('btn-ai-test').onclick = async () => {
+  const btn = $('btn-ai-test');
+  btn.disabled = true;
+  btn.textContent = '测试中…';
+  try {
+    const res = await api('/api/llm/test', { target: target(), llm: collectLlm() });
+    if (res.ok) {
+      $('ai-status').textContent = '连接正常 · ' + (res.latency_ms || 0) + 'ms · 回复「' + (res.reply || '') + '」';
+      toast('AI 连接正常');
+    } else {
+      $('ai-status').textContent = '连接失败：' + res.error;
+      toast('连接失败：' + res.error, true);
+    }
+  } catch (err) {
+    toast('测试失败：' + err.message, true);
+  } finally {
+    btn.disabled = false;
+    btn.textContent = '测试连接';
+  }
+};
+
+$('btn-ai-save').onclick = async () => {
+  try {
+    await api('/api/save', {
+      target: target(), rules: RULE_EDITS, allow: collectAllow(),
+      ignore: collectIgnore(), llm: collectLlm()
+    });
+    toast('AI 配置已保存');
+    await loadState(true);
+  } catch (err) { toast('保存失败：' + err.message, true); }
+};
+
+/* ------------------------------------------------------------ 修复历史 */
+async function loadHistory() {
+  const list = $('history-list');
+  const total = $('history-total');
+  try {
+    const t = target();
+    // verify=1：让服务端逐条回读磁盘。历史是写入时的快照，而代码会继续变——
+    // 不核对的话，一条三天前的记录看起来和刚写的一样可信。
+    const qs = '?verify=1' + (t ? '&target=' + encodeURIComponent(t) : '');
+    const data = await api('/api/history' + qs);
+    const entries = data.entries || [];
+    total.textContent = entries.length ? ('共 ' + data.total + ' 条，显示最近 ' + entries.length + ' 条（已核对磁盘）') : '';
+    if (!entries.length) {
+      list.innerHTML = '<p class="hint">还没有修复记录。在「扫描结果」里点「编辑」保存一行之后，这里会出现改前改后与对应规则。</p>';
+      return;
+    }
+    const STATUS = {
+      reverted: ['已被撤回', 'hist-status-reverted'],
+      stale: ['文件已再次改动', 'hist-status-stale'],
+      gone: ['文件已不存在', 'hist-status-gone'],
+      unknown: ['无法核对', 'hist-status-gone'],
+    };
+    list.innerHTML = entries.map(e => {
+      const where = escapeHtml(e.file || '') + (e.line ? ':' + e.line : '');
+      const rule = e.rule_id ? '<b>' + escapeHtml(e.rule_id) + '</b>' : '<b>未标注规则</b>';
+      const badge = STATUS[e.status]
+        ? '<span class="hist-status ' + STATUS[e.status][1] + '">' + STATUS[e.status][0] + '</span>'
+        : '';
+      const dim = (e.status === 'reverted' || e.status === 'stale') ? ' hist-dim' : '';
+      const remaining = (e.remaining === 0 || e.remaining == null)
+        ? '改完该文件已无命中'
+        : ('该文件还剩 ' + e.remaining + ' 条' + (e.remaining_ids && e.remaining_ids.length ? '（' + escapeHtml(e.remaining_ids.join(', ')) + '）' : ''));
+      return '<div class="hist' + dim + '">' +
+        '<div class="hist-head">' + rule + badge + '<span>' + escapeHtml(e.clock || e.iso || '') + '</span>' +
+        '<span class="mono">' + where + '</span>' +
+        '<span>' + escapeHtml(e.source === 'panel' ? '浏览器面板' : (e.source || '卡片')) + '</span></div>' +
+        '<div class="hist-diff"><span class="hist-before">- ' + escapeHtml(e.before || '') + '</span>\n' +
+        '<span class="hist-after">+ ' + escapeHtml(e.after || '') + '</span></div>' +
+        '<div class="hist-meta">' + remaining +
+        (e.backup ? '　备份：<code class="mono">' + escapeHtml(e.backup) + '</code>' : '') + '</div>' +
+        '</div>';
+    }).join('');
+  } catch (err) {
+    total.textContent = '';
+    list.innerHTML = '<p class="hint">读取历史失败：' + escapeHtml(err.message) + '</p>';
+  }
+}
+
+$('btn-history-reload').onclick = () => loadHistory();
+
+// 停在历史页时定时重读：追加只发生在修复时，但每条记录的**状态**是关于「现在」
+// 的断言，别人手改或 git checkout 之后立刻就旧了。只在可见时轮询，别在后台烧 IO。
+setInterval(() => {
+  const view = document.querySelector('.view.active');
+  if (view && view.id === 'view-history') loadHistory();
+}, 4000);
+
+/* ------------------------------------------------------------ 扫描 */
+async function runScan() {
+  const btn = $('btn-scan');
+  btn.disabled = true;
+  btn.innerHTML = '<span class="spinner"></span> 扫描中';
+  try {
+    const data = await api('/api/scan', {
+      target: target(), mode: $('mode').value, include_tests: $('include-tests').checked,
+      use_llm: $('use-llm').checked, llm_deep: $('ai-deep').checked
+    });
+    LAST_SCAN = data;
+    renderScan(data);
+    toast('扫描完成：' + data.verdict + '（' + data.summary.scanned_files + ' 个文件）');
+  } catch (err) {
+    toast('扫描失败：' + err.message, true);
+  } finally {
+    btn.disabled = false;
+    btn.textContent = '开始扫描';
+  }
+}
+$('btn-scan').onclick = runScan;
+
+$('btn-baseline').onclick = async () => {
+  try {
+    const res = await api('/api/baseline', { target: target() });
+    toast('基线已写入 ' + res.files + ' 个文件签名');
+  } catch (err) { toast('生成失败：' + err.message, true); }
+};
+
+function renderScan(data) {
+  const s = data.summary.severity;
+  $('s-verdict').innerHTML = '<span class="badge ' + data.verdict + '">' + data.verdict + '</span>';
+  $('s-critical').textContent = s.CRITICAL;
+  $('s-warning').textContent = s.WARNING;
+  $('s-info').textContent = s.INFO;
+  renderFindings();
+}
+
+function renderFindings() {
+  if (!LAST_SCAN) return;
+  const rows = (LAST_SCAN.findings || []).filter(f => {
+    if (FILTER.sev !== 'ALL' && f.severity !== FILTER.sev) return false;
+    if (!FILTER.text) return true;
+    const hay = (f.rule_id + ' ' + f.file + ' ' + f.message + ' ' + f.evidence).toLowerCase();
+    return hay.includes(FILTER.text.toLowerCase());
+  });
+  VISIBLE = rows;
+  if (!rows.length) {
+    $('findings').innerHTML = '<tr><td colspan="5" class="hint">没有符合条件的结果。</td></tr>';
+    return;
+  }
+  $('findings').innerHTML = rows.map((f, i) => `
+    <tr class="finding" data-i="${i}">
+      <td><span class="badge ${f.severity}">${f.severity}</span></td>
+      <td class="mono"><b>${escapeHtml(f.rule_id)}</b></td>
+      <td><div class="mono" style="font-size:12.5px">${escapeHtml(f.file)}:${f.line}</div>
+          <div class="loc">${escapeHtml(f.category)}</div></td>
+      <td><div class="msg">${escapeHtml(f.message)}</div>
+          <div class="detail hidden" id="d-${i}">
+            ${f.evidence ? '<div class="evidence">' + escapeHtml(f.evidence) + '</div>' : ''}
+            ${f.suggestion ? '<div class="fix"><b>修复：</b>' + escapeHtml(f.suggestion) + '</div>' : ''}
+            <div class="fix"><b>置信度：</b>${escapeHtml(f.confidence)}</div>
+          </div></td>
+      <td><div class="actions">
+        <button class="btn ghost" data-act="jump" data-i="${i}" title="在编辑器里跳到这一行">跳转</button>
+        <button class="btn ghost" data-act="edit" data-i="${i}" title="就地改这一行">编辑</button>
+        <button class="btn ghost" data-act="ai" data-i="${i}" title="生成修复指令给 AI">交给 AI</button>
+        <button class="btn ghost" data-act="ignore" data-i="${i}" title="写进豁免清单">豁免</button>
+      </div></td>
+    </tr>`).join('');
+}
+
+/* 行内操作：跳转 / 编辑 / 交给 AI / 豁免 */
+$('findings').addEventListener('click', async (ev) => {
+  const btn = ev.target.closest('button[data-act]');
+  if (btn) {
+    ev.stopPropagation();
+    const f = VISIBLE[Number(btn.dataset.i)];
+    if (!f) return;
+    if (btn.dataset.act === 'jump') return jumpTo(f);
+    if (btn.dataset.act === 'edit') return openEditor(f);
+    if (btn.dataset.act === 'ai') return openPrompt(f);
+    if (btn.dataset.act === 'ignore') return ignoreFinding(f);
+    return;
+  }
+  const tr = ev.target.closest('tr.finding');
+  if (tr) tr.querySelector('.detail').classList.toggle('hidden');
+});
+
+async function jumpTo(f) {
+  try {
+    const res = await api('/api/reveal', { target: target(), file: f.file, line: f.line });
+    if (res.method === 'vscode') toast('已在编辑器打开 ' + f.file + ':' + f.line);
+    else toast(res.hint || '已在文件管理器中定位 ' + f.file);
+  } catch (err) { toast('跳转失败：' + err.message, true); }
+}
+
+async function ignoreFinding(f) {
+  try {
+    const res = await api('/api/ignore', { target: target(), rule_id: f.rule_id, path: f.file });
+    $('ignore-lines').value = res.ignore.join('\n');
+    toast('已豁免 ' + f.rule_id + ' → ' + f.file);
+  } catch (err) { toast('豁免失败：' + err.message, true); }
+}
+
+/* ------------------------------------------------------------ 弹窗 */
+let MODAL_CTX = null;
+
+function openModal() { $('modal').classList.remove('hidden'); }
+function closeModal() { $('modal').classList.add('hidden'); MODAL_CTX = null; }
+$('modal-close').onclick = closeModal;
+$('modal').addEventListener('click', (ev) => { if (ev.target.id === 'modal') closeModal(); });
+document.addEventListener('keydown', (ev) => { if (ev.key === 'Escape') closeModal(); });
+
+async function openEditor(f) {
+  try {
+    const data = await api('/api/line?target=' + encodeURIComponent(target()) +
+      '&file=' + encodeURIComponent(f.file) + '&line=' + f.line + '&context=3');
+    MODAL_CTX = { mode: 'edit', file: f.file, line: data.line };
+    $('modal-title').textContent = '编辑第 ' + data.line + ' 行';
+    $('modal-sub').textContent = f.file + ':' + data.line + '  ·  ' + f.rule_id;
+    $('modal-before').textContent = data.before.map(l => String(l.n).padStart(4) + '  ' + l.text).join('\n');
+    $('modal-after').textContent = data.after.map(l => String(l.n).padStart(4) + '  ' + l.text).join('\n');
+    $('modal-text').classList.remove('hidden');
+    $('modal-text').value = data.text;
+    $('modal-prompt').classList.add('hidden');
+    $('modal-save').classList.remove('hidden');
+    $('modal-reveal').classList.remove('hidden');
+    $('modal-copy').classList.add('hidden');
+    $('modal-status').textContent = '保存会先备份到 .dsh-quarantine-backup/';
+    openModal();
+    setTimeout(() => $('modal-text').focus(), 50);
+  } catch (err) { toast('读取失败：' + err.message, true); }
+}
+
+async function openPrompt(f) {
+  try {
+    const res = await api('/api/fix-prompt', {
+      target: target(), rule_id: f.rule_id, path: f.file, line: f.line,
+      message: f.message, evidence: f.evidence, suggestion: f.suggestion
+    });
+    MODAL_CTX = { mode: 'prompt', prompt: res.prompt, file: f.file, line: f.line };
+    $('modal-title').textContent = '交给 AI 修复';
+    $('modal-sub').textContent = f.file + ':' + f.line + '  ·  ' + f.rule_id;
+    $('modal-before').textContent = '';
+    $('modal-after').textContent = '';
+    $('modal-text').classList.add('hidden');
+    $('modal-prompt').classList.remove('hidden');
+    $('modal-prompt').textContent = res.prompt;
+    $('modal-save').classList.add('hidden');
+    $('modal-reveal').classList.remove('hidden');
+    $('modal-copy').classList.remove('hidden');
+    $('modal-status').textContent = '复制后粘到对话框，AI 会按位置和修复方向处理';
+    openModal();
+  } catch (err) { toast('生成失败：' + err.message, true); }
+}
+
+$('modal-save').onclick = async () => {
+  if (!MODAL_CTX || MODAL_CTX.mode !== 'edit') return;
+  const btn = $('modal-save');
+  btn.disabled = true;
+  try {
+    const res = await api('/api/line', {
+      target: target(), file: MODAL_CTX.file, line: MODAL_CTX.line, text: $('modal-text').value
+    });
+    if (!res.changed) { toast('内容没有变化'); return; }
+    const left = (res.remaining || []).length;
+    toast(left ? '已保存，该文件还剩 ' + left + ' 条问题' : '已保存，该文件已无问题');
+    closeModal();
+    await runScan();
+  } catch (err) {
+    toast('保存失败：' + err.message, true);
+  } finally {
+    btn.disabled = false;
+  }
+};
+
+$('modal-reveal').onclick = () => {
+  if (MODAL_CTX) jumpTo({ file: MODAL_CTX.file, line: MODAL_CTX.line });
+};
+
+$('modal-copy').onclick = async () => {
+  if (!MODAL_CTX) return;
+  const text = MODAL_CTX.prompt || '';
+  try {
+    await navigator.clipboard.writeText(text);
+    toast('已复制，去对话框粘贴即可');
+  } catch (err) {
+    const ta = document.createElement('textarea');
+    ta.value = text;
+    document.body.appendChild(ta);
+    ta.select();
+    document.execCommand('copy');
+    document.body.removeChild(ta);
+    toast('已复制（降级方式）');
+  }
+};
+
+/* ------------------------------------------------------------ 拦截事件 */
+let LAST_EVENT = 0;
+let EVENT_BOOT = false;
+
+async function pollEvents() {
+  try {
+    const data = await api('/api/events');
+    if (!EVENT_BOOT) {
+      LAST_EVENT = data.seq;
+      EVENT_BOOT = true;
+      // 打开面板时如果半小时内有过拦截，直接把横幅亮出来
+      const recent = data.events[0];
+      if (recent && (Date.now() / 1000 - (recent.ts || 0)) < 1800) showEvent(recent);
+      return;
+    }
+    if (data.seq > LAST_EVENT && data.events.length) {
+      LAST_EVENT = data.seq;
+      showEvent(data.events[0]);
+    }
+  } catch (err) { /* 面板刚启动或网络抖动，忽略 */ }
+}
+
+function showEvent(ev) {
+  const bar = $('event-bar');
+  const critical = (ev.counts && ev.counts.CRITICAL) > 0;
+  bar.classList.remove('hidden');
+  bar.classList.toggle('warn', !critical);
+  const first = (ev.findings || [])[0] || {};
+  $('event-text').innerHTML = (critical ? '🔴 ' : '🟠 ') +
+    '<b>' + escapeHtml(ev.clock) + '</b> ' +
+    (ev.type === 'pre-write' ? '写入前拦截' : '落盘后审计') + ' · ' +
+    '<span class="mono">' + escapeHtml(ev.file) + '</span>' +
+    (first.rule_id ? ' · ' + escapeHtml(first.rule_id) : '') +
+    ' · ' + ((ev.counts && ev.counts.CRITICAL) || 0) + 'C/' + ((ev.counts && ev.counts.WARNING) || 0) + 'W';
+}
+
+$('event-close').onclick = () => $('event-bar').classList.add('hidden');
+$('event-goto').onclick = async () => {
+  $('event-bar').classList.add('hidden');
+  await runScan();
+};
+
+setInterval(pollEvents, 3000);
+
+$('chips').querySelectorAll('.chip').forEach(chip => {
+  chip.onclick = () => {
+    $('chips').querySelectorAll('.chip').forEach(c => c.classList.toggle('active', c === chip));
+    FILTER.sev = chip.dataset.sev;
+    renderFindings();
+  };
+});
+$('search').oninput = (e) => { FILTER.text = e.target.value; renderFindings(); };
+
+/* ------------------------------------------------------------ 其他 */
+$('btn-reload').onclick = () => loadState(false);
+$('target').addEventListener('keydown', e => { if (e.key === 'Enter') loadState(false); });
+
+function escapeHtml(s) {
+  return String(s == null ? '' : s).replace(/[&<>"']/g, c => ({'&':'&amp;','<':'&lt;','>':'&gt;','"':'&quot;',"'":'&#39;'}[c]));
+}
+function escapeAttr(s) { return escapeHtml(s).replace(/"/g, '&quot;'); }
+
+loadState(true).then(applyHash);
+</script>
+</body>
+</html>

@@ -1,0 +1,14 @@
+# AI 复核层：规则看不出的语义级问题。
+# 这一层的命中由大模型给出，但走同一套 Finding / 豁免 / 报告管线。
+version: 1
+category: ai_review
+
+rules:
+  - id: AI001
+    title: AI 复核补漏（语义级问题）
+    severity: warning
+    enabled: true
+    message: 规则引擎未命中，但模型判断存在推广注入、凭据外发或隐蔽执行
+    suggestion: 按模型给出的原因逐条核对；确认后修复，确认是误判则用 .dsh-quarantine-ignore 登记
+    data:
+      require_key: true

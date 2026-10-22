@@ -1,0 +1,39 @@
+{
+  "name": "dsh-code-quarantine",
+  "version": "1.1.0",
+  "private": true,
+  "description": "DeepSeek-Harness bundle for dsh-code-quarantine: blocks CRITICAL writes before they land, and puts a one-click quarantine launcher in the composer.",
+  "type": "module",
+  "main": "index.js",
+  "exports": {
+    ".": "./index.js",
+    "./client": "./client.js",
+    "./locale/*.json": "./locale/*.json",
+    "./package.json": "./package.json"
+  },
+  "icon": "./icon.svg",
+  "dsh": {
+    "bundle": {
+      "patch": "./cordis.patch.yml"
+    },
+    "client": {
+      "platform": "web",
+      "immediately": true,
+      "inject": [
+        "@deepseek-ai/dsh-client-ui-conversation"
+      ]
+    }
+  },
+  "peerDependencies": {
+    "@deepseek-ai/cordis": "~4.0.4"
+  },
+  "keywords": [
+    "deepseek-harness",
+    "dsh",
+    "dsh-plugin",
+    "code-quarantine",
+    "supply-chain",
+    "prompt-injection"
+  ],
+  "license": "MIT"
+}

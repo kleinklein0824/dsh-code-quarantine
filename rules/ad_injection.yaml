@@ -1,0 +1,150 @@
+# 第一层：广告注入与外部实体注入检测
+# 规则只提供「数据 + 元信息」，判定算法在 scripts/qcore/rules/ad.py 中，
+# 便于按项目调 severity / 关闭单条规则，而无需改代码。
+version: 1
+category: ad_injection
+
+rules:
+  - id: AD001
+    title: 推广话术与外部链接共现（注入脚手架）
+    severity: warning
+    enabled: true
+    message: 注释/字符串中出现推广类动词，且近距离内出现非白名单外链
+    suggestion: 删除推广话术与外链；若该链接确为项目必需文档，改为官方域名或加入 rules/allowlist.yaml
+    data:
+      window_lines: 3
+      # 中文话术按子串匹配（中文没有词边界，靠词组长度控制歧义）。
+      # 收录标准是「这句话本身就在催人去点它」：推广、广告、优惠、充值、
+      # 领额度、进群这几族是中转站页面的固定套路，漏掉任何一族都会让整页
+      # 判成 SAFE。刻意不收「关注」「推荐」
+      # 这种单独出现频率极高的裸词——它们只有拼成词组才有营销语气。
+      strong_verbs:
+        - 推荐访问
+        - 请访问
+        - 推荐使用
+        - 推荐购买
+        - 立即注册
+        - 注册领取
+        - 关注公众号
+        - 加入群
+        - 加群
+        - 进群
+        - 入群
+        - 扫码
+        - 获取最新
+        - 下载最新
+        - 联系客服
+        - 咨询客服
+        - 购买
+        - 购买套餐
+        - 免费领取
+        - 官网
+        - 备用地址
+        - 镜像站
+        - 加速地址
+        - 推广
+        - 广告推送
+        - 限时优惠
+        - 优惠活动
+        - 优惠券
+        - 充值
+        - 领取额度
+        - 免费额度
+        - 送额度
+        - 新用户福利
+        - 售后群
+        - 技术支持群
+        # 中文社群引导语的实际写法：渠道名夹在动词中间（加QQ群 / 加微信群 /
+        # 进Telegram群），单独的「加群」匹配不到它们。
+        - 加QQ群
+        - 加qq群
+        - 加微信群
+        - 进群聊
+        - 交流群
+      # 英文单词歧义高："recommended"/"visit" 在正常文档句里到处都是
+      # （"Refer to ... for the recommended approach"），所以英文只匹配
+      # 明确的营销句式，而不是单个动词。
+      strong_patterns:
+        - '(?i)\bget\s+your\b[^.\n]{0,24}\b(key|token|credits?|quota|access)\b'
+        - '(?i)\b(sign\s+up|register|subscribe|join)\b[^.\n]{0,20}\b(at|for|now|to|today)\b'
+        - '(?i)\bregister\s+at\b'
+        - '(?i)\bjoin\s+(us|our)\b|\bfollow\s+us\b|\bcontact\s+us\b'
+        - '(?i)\bpowered\s+by\b'
+        - '(?i)\b(get|download)\s+the\s+latest\b'
+        - '(?i)\bofficial\s+(mirror|endpoint|channel|relay)\b'
+        - '(?i)\bbackup\s+(endpoint|mirror|relay|channel)\b'
+        - '(?i)\b(cheapest|fastest|best)\s+(relay|mirror|endpoint|api)\b'
+        - '(?i)\buse\s+this\s+(mirror|endpoint|relay|address|link)\b'
+        - '(?i)\bfree\s+(credits?|quota|trial)\b'
+        - '(?i)\bvisit\b[^.\n]{0,40}\b(to\s+(get|claim|register|sign)|for\s+(your|free))\b'
+        # 下面这批是 2026-10 中英文对照审计补的：实测 `Buy credits at …`、
+        # `Official site: …`、`Mirror site: …`、`Limited offer: …` 四种最常见的
+        # 英文中转站话术全部只落到 AD002，AD001 完全没开口。仍坚持"词组而非
+        # 单词"的原则——单说 discount / official 在技术文档里太常见。
+        - '(?i)\bbuy\s+(credits?|quota|tokens?|plans?|subscriptions?)\b'
+        - '(?i)\b(get|claim|redeem)\s+(your\s+)?(free\s+)?(credits?|quota|tokens?|trial|key)\b'
+        - '(?i)\bofficial\s+(site|website|mirror|endpoint|channel|relay|store)\b'
+        - '(?i)\bmirror\s+(site|endpoint|address|link|server)\b'
+        - '(?i)\blimited[\s\-]+(offer|time\s+offer|deal)\b'
+        - '(?i)\b(recharge|top[\s\-]?up)\b[^.\n]{0,20}\b(credits?|balance|account|now)\b'
+        - '(?i)\b(discount|coupon|promo)\s+(code|deal)\b'
+        - '(?i)\bnew\s+users?\s+(bonus|gift|reward|offer)\b'
+        - '(?i)\bjoin\s+(our|the)\s+(telegram|discord|qq|group|channel|community)\b'
+        - '(?i)\b(support|after[\s\-]sales)\s+(group|channel)\b'
+      weak_verbs: [添加, 集成, 包含, 替换为, 改为, add, integrate, include, install from, replace with, mirror]
+
+  - id: AD002
+    title: 非功能性 URL 出现在非网络调用位置
+    severity: warning
+    enabled: true
+    message: 代码字符串中出现硬编码外链，但未被任何网络/链接 API 使用
+    suggestion: 确认该 URL 是否为业务必需；否则删除，或将 base URL 收敛到配置中心
+    data:
+      # idea.md 锚点 2 要求注释/docstring 里的非功能性 URL 是 WARNING
+      comment_severity: warning
+      # 引用式写法（[docs](url)、Based on: url、`name <url>`_、>>> 示例）降为 INFO：
+      # idea.md 锚点 1 明确"单纯的 URL 不足为据"，真实推广由 AD001 保持 WARNING
+      citation_severity: info
+      # 最后一个分组是命令行下载器：shell 闸把整条命令当脚本扫，
+      # `curl https://api.example.com/x` 里的 URL 正是被 curl 使用的，
+      # 若不算「被网络 API 使用」就会把每一条正常下载命令都报成 AD002。
+      network_tokens: [requests., httpx., urllib, urlopen, http.client, aiohttp, fetch(, axios, XMLHttpRequest, superagent, got(, client.get, client.post, session.get, session.post, WebClient, HttpClient, okhttp, restTemplate, RestTemplate, feign, href, src=, action=, url=, uri=, endpoint, base_url, baseUrl, baseURL, redirect_uri, webhook, proxy, webbrowser, QDesktopServices, curl, wget, httpie, aria2c, Invoke-WebRequest, iwr , scp, rsync, git clone, git fetch, npm install, npm i , pip install, pip3 install, docker pull, apt-get install, choco install, winget install]
+      # 这些是"配置消费者"而非网络调用：URL 作为配置默认值出现时不算硬编码注入
+      config_sinks: [os.environ, os.getenv, getenv(, process.env, config.get, settings., '$schema', '$id', xmlns, doctype]
+
+  - id: AD003
+    title: 已知中转站/推广域名
+    severity: warning
+    enabled: true
+    message: 命中 blocked_domains 或 suspicious_tld_patterns 中的域名特征
+    suggestion: 移除该外部依赖；若确为自建中转，请将该域名加入 allowlist 并在评审中说明
+    data:
+      # 默认只告警不删除，避免误伤合法自建中转配置
+      escalate_in_code: true
+
+  - id: AD004
+    title: 联系方式异常嵌入
+    severity: warning
+    enabled: true
+    message: 代码逻辑区（非注释/非文档字符串）出现推广性联系方式
+    suggestion: 移除联系方式；项目需要联系信息时放入 README 或 SECURITY.md
+    data:
+      # 联系方式词表：既收 IM 账号形态，也收中文社群引导语。
+      # 中文这几条（扫码/公众号/售后群/加V）是中转站页面引导用户私域的标准
+      # 话术，只有它们和 URL 一起出现时才说明问题，所以级别低于代码区。
+      promo_handles: [t.me/, telegram, 微信, 企微, 加q, 加qq, qq群, 钉钉群, discord.gg, wa.me, whatsapp, 扫码, 公众号, 售后群, 交流群, 技术支持群, 加v, 加微]
+      # idea.md 锚点 4 要求"标记 WARNING"；邮箱与 IM 账号同属联系方式，级别对齐。
+      email_severity: warning
+      # 注释区里的联系方式降为 INFO：注释不参与执行，写"# 有问题联系 support@x"
+      # 是常见的维护说明，直接报 WARNING 会在真实库里刷屏。idea.md 锚点 4 的
+      # WARNING 针对的是"代码逻辑区"，这里只是别让它彻底沉默。
+      comment_severity: info
+
+  - id: AD005
+    title: 外链脚本/框架注入
+    severity: critical
+    enabled: true
+    message: 页面或脚本中引入未在 allowlist 内的外部脚本、iframe、Worker 或动态 import
+    suggestion: 移除该外链资源；确需 CDN 时固定版本并加 integrity/crossorigin，同时写入 allowlist
+    data:
+      cdn_domains: [cdn.jsdelivr.net, unpkg.com, cdnjs.cloudflare.com, ajax.googleapis.com, fonts.googleapis.com, fonts.gstatic.com, esm.sh, skypack.dev]

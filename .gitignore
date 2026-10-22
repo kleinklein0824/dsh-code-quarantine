@@ -1,0 +1,20 @@
+.dsh-quarantine-state.json
+.dsh-quarantine-last.json
+.dsh-quarantine-baseline.json
+.dsh-quarantine-panel.json
+.dsh-quarantine-llm-cache.json
+.dsh-quarantine-backup/
+# 修复历史是本机操作记录，不是仓库内容：它带着绝对路径与源码片段。
+.dsh-quarantine-history.jsonl
+# 项目配置里可能存着明文 api_key（面板保存 AI 端点时会写进去）。
+# 它是本机配置，不该跟着仓库走；示例见 .dsh-quarantine.yml.example。
+.dsh-quarantine.yml
+__pycache__/
+*.pyc
+.tmp-shots/
+.tmp-logo/
+.demo/
+
+# 发布包与校验文件作为 GitHub Release 附件，不进入源码历史。
+*.zip
+/SHA256SUMS.txt

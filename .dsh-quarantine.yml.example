@@ -1,0 +1,54 @@
+# 项目级配置：放在项目根目录，文件名必须是 .dsh-quarantine.yml
+# 只用于「收紧/放宽本项目已有规则」，不新增规则逻辑。
+
+# 1) 调整严重级别（影响阻塞策略与 CI gate）
+severity:
+  AD002: INFO      # 本项目大量硬编码内网地址，注释链接只做提示
+  SC106: WARNING   # 强制锁版本
+
+# 2) 关闭单条规则
+disable:
+  - AR004          # 尚未建立签名基线
+
+# 3) 覆盖规则数据（按 rule_id 合并）
+data:
+  AD005:
+    cdn_domains:
+      - cdn.jsdelivr.net
+      - unpkg.com
+      - static.mycorp.com
+  AR001:
+    layers:
+      - glob: '**/domain/**'
+        forbid: [flask, django, requests, httpx, sqlalchemy]
+      - glob: '**/infra/**'
+        forbid: [flask, django]
+
+# 4) 追加白名单
+allow:
+  domains:
+    - mycorp.com
+    - api.mycorp.com
+  registries:
+    - npm.mycorp.com
+    - pypi.mycorp.com
+  blocked_domains:
+    - relay-fast-01.xyz
+
+# 5) 行内豁免（等价于写进 .dsh-quarantine-ignore）
+ignore:
+  - "AD001 docs/**"
+
+# 6) AI 复核端点（可选）
+# 注意：项目里写死的端点默认「不自动启用」——克隆来的仓库可能借此把源码
+# 发到第三方。确认可信后加 --llm，或设置 DSH_QUARANTINE_LLM_TRUST_PROJECT=1。
+# 密钥请用 api_key_env 指向环境变量；直接写 api_key 是明文，本文件已进 .gitignore。
+llm:
+  enabled: true
+  provider: openai          # openai | anthropic
+  base_url: "https://api.openai.com/v1"
+  model: "gpt-4o-mini"
+  api_key_env: "DSH_QUARANTINE_LLM_API_KEY"
+  timeout: 30
+  max_calls: 20
+  max_chars: 6000
