@@ -1009,7 +1009,11 @@ class BrandAndEntryPoints(unittest.TestCase):
         )
         self.assertEqual(0, proc.returncode)
         self.assertIn("panel_server.py", proc.stdout)
-        self.assertIn("eye-of-horus.ico", proc.stdout)
+        if os.name == "nt":
+            self.assertIn("eye-of-horus.ico", proc.stdout)
+        else:
+            # 快捷方式创建是 Windows 专属能力；Linux/macOS 应给出面板启动命令。
+            self.assertIn("只处理 Windows 快捷方式", proc.stdout)
 
 
 class LLMContract(unittest.TestCase):
