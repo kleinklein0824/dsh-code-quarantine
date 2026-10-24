@@ -35,3 +35,8 @@ AD001  demo/**
 AD002  demo/**
 AD003  demo/**
 AD004  demo/**
+
+# 宣传片分镜必须展示真实的推广链接与 curl|bash 样例，才能说明检测场景；
+# cdp.py 是构建期内嵌浏览器的辅助脚本，连接与进程启动集中在构造阶段。
+*      promo/scenes.html
+AR006  promo/cdp.py

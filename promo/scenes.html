@@ -1,0 +1,468 @@
+<!DOCTYPE html>
+<html lang="zh-CN">
+<head>
+<meta charset="utf-8">
+<title>promo scene</title>
+<style>
+  :root{
+    --gold:#e8b84b;--ink:#e8edf5;--ink-2:#8b98ad;--ink-3:#5d6b80;
+  }
+  *{margin:0;padding:0;box-sizing:border-box}
+  html,body{width:1920px;height:1080px;overflow:hidden;background:#080d16}
+  body{color:var(--ink);font-family:system-ui,-apple-system,'Segoe UI','Microsoft YaHei',sans-serif;-webkit-font-smoothing:antialiased}
+  .mono{font-family:ui-monospace,Consolas,'Cascadia Mono',monospace}
+
+  .bg{position:absolute;inset:0;
+    background:
+      radial-gradient(900px 620px at 78% 16%, rgba(232,184,75,.13), transparent 62%),
+      radial-gradient(780px 540px at 16% 86%, rgba(79,141,247,.12), transparent 60%),
+      linear-gradient(180deg,#080d16 0%,#0b1220 100%);}
+  .grid{position:absolute;inset:0;opacity:.5;
+    background-image:linear-gradient(rgba(255,255,255,.03) 1px,transparent 1px),
+                     linear-gradient(90deg,rgba(255,255,255,.03) 1px,transparent 1px);
+    background-size:64px 64px;
+    -webkit-mask-image:radial-gradient(circle at 50% 45%,#000 32%,transparent 84%);}
+
+  .scene{position:absolute;inset:0;display:none;padding:96px 120px;opacity:0}
+  .scene.on{display:block}
+
+  .tag{position:absolute;top:76px;left:120px;display:flex;align-items:center;gap:12px;
+    font-size:15px;letter-spacing:.22em;color:#7f8da3;text-transform:uppercase}
+  .tag i{display:block;width:34px;height:2px;background:var(--gold);border-radius:2px;transform-origin:left center}
+  .foot{position:absolute;left:120px;bottom:64px;font-size:15px;color:var(--ink-3);letter-spacing:.06em}
+  .mid{display:flex;flex-direction:column;justify-content:center;height:100%}
+
+  .hook-wrap{display:flex;flex-direction:column;align-items:center;justify-content:center;height:100%;gap:34px;text-align:center}
+  .eye{width:186px;height:186px;filter:invert(1) brightness(1.15)}
+  .hook-title{font-size:92px;line-height:1.16;font-weight:700;letter-spacing:-.02em}
+  .hook-title em{font-style:normal;color:var(--gold)}
+  .hook-sub{font-size:29px;color:var(--ink-2);letter-spacing:.12em}
+  .hook-sub span{color:#4a586d;margin:0 14px}
+
+  .sec-title{font-size:64px;font-weight:700;letter-spacing:-.01em;margin-bottom:12px}
+  .sec-sub{font-size:26px;color:#8391a6;margin-bottom:46px}
+  .codecards{display:flex;flex-direction:column;gap:20px}
+  .cc{position:relative;overflow:hidden;background:#0d1421;border:1px solid #1c2534;border-radius:14px;padding:24px 30px;display:flex;align-items:center;gap:26px}
+  .cc .bar{width:4px;height:62px;border-radius:4px;flex:none}
+  .cc.hot .bar{background:#f0503a;box-shadow:0 0 18px rgba(240,80,58,.55)}
+  .cc.warm .bar{background:var(--gold);box-shadow:0 0 18px rgba(232,184,75,.5)}
+  .cc .body{flex:1}
+  .cc .where{font-size:16px;color:#6d7b91;margin-bottom:8px;letter-spacing:.04em}
+  .cc .code{font-size:25px;color:#c9d4e4}
+  .cc .code .k{color:#f0503a}
+  .cc .code .g{color:var(--gold)}
+  .cc .lvl{font-size:15px;font-weight:700;letter-spacing:.1em;padding:6px 14px;border-radius:999px}
+  .cc.hot .lvl{color:#f0503a;background:rgba(240,80,58,.12);border:1px solid rgba(240,80,58,.35)}
+  .cc.warm .lvl{color:var(--gold);background:rgba(232,184,75,.12);border:1px solid rgba(232,184,75,.32)}
+  .scanline{position:absolute;top:0;bottom:0;width:180px;pointer-events:none;
+    background:linear-gradient(90deg,transparent,rgba(232,184,75,.18),transparent);filter:blur(2px)}
+
+  .name{font-size:88px;font-weight:750;letter-spacing:-.025em;display:flex;align-items:baseline}
+  .name .w{display:inline-block}
+  .name .dsh{color:var(--gold)}
+  .underline{height:5px;width:520px;margin-top:8px;border-radius:3px;
+    background:linear-gradient(90deg,var(--gold),rgba(232,184,75,0));transform-origin:left center}
+  .slogan{font-size:44px;color:#c2ccdb;line-height:1.5;margin-top:22px}
+  .slogan b{color:#fff}
+  .pills{display:flex;gap:14px;margin-top:34px}
+  .pill{font-size:20px;padding:10px 22px;border-radius:999px;border:1px solid #253044;color:#9aa8bd;background:#0d1421}
+  .pill b{color:var(--gold)}
+
+  .layers{display:flex;gap:20px;margin-top:26px}
+  .layer{flex:1;background:#0d1421;border:1px solid #1c2534;border-radius:16px;padding:32px 26px;display:flex;flex-direction:column;gap:10px}
+  .layer .num{font-size:52px;font-weight:750;color:var(--gold);line-height:1}
+  .layer .nm{font-size:25px;font-weight:650;color:#dbe4f0}
+  .layer .ds{font-size:17px;color:#6d7b91;line-height:1.6}
+  .layer .ids{font-size:14px;color:#4a586d;letter-spacing:.05em;margin-top:auto}
+
+  .shot{position:relative;border:1px solid #223047;border-radius:16px;overflow:hidden;background:#0d1421;box-shadow:0 40px 90px rgba(0,0,0,.55)}
+  .shot .bar2{height:38px;background:#111a29;display:flex;align-items:center;gap:8px;padding:0 16px;border-bottom:1px solid #1b2434}
+  .shot .bar2 i{width:11px;height:11px;border-radius:50%}
+  .shot .bar2 i:nth-child(1){background:#f0503a}
+  .shot .bar2 i:nth-child(2){background:var(--gold)}
+  .shot .bar2 i:nth-child(3){background:#3fbf7f}
+  .shot .bar2 span{margin-left:12px;font-size:13px;color:#6d7b91}
+  .shot img{display:block;width:100%;height:790px;object-fit:cover;object-position:top}
+  .shot::after{content:'';position:absolute;left:0;right:0;bottom:0;height:170px;background:linear-gradient(rgba(10,16,25,0),rgba(10,16,25,.92) 72%,#0a1019)}
+  .shot .scanline{position:absolute;left:0;right:0;top:0;height:130px;width:100%;
+    background:linear-gradient(180deg,transparent,rgba(79,141,247,.12),transparent);filter:blur(1px)}
+
+  .acts{display:grid;grid-template-columns:repeat(2,1fr);gap:20px;margin-top:30px}
+  .act{background:#0d1421;border:1px solid #1c2534;border-radius:14px;padding:26px 28px;display:flex;gap:20px;align-items:flex-start}
+  .act .ic{width:46px;height:46px;border-radius:11px;background:rgba(79,141,247,.12);border:1px solid rgba(79,141,247,.3);display:grid;place-items:center;font-size:21px;flex:none}
+  .act .t{font-size:26px;font-weight:650;margin-bottom:6px}
+  .act .d{font-size:17px;color:#7f8da3;line-height:1.6}
+
+  .proof{display:grid;grid-template-columns:repeat(4,1fr);gap:24px;margin-top:38px}
+  .pf{background:#0d1421;border:1px solid #1c2534;border-radius:16px;padding:36px 28px;text-align:center}
+  .pf .v{font-size:64px;font-weight:750;color:var(--gold);line-height:1;letter-spacing:-.02em}
+  .pf .k{font-size:18px;color:#7f8da3;margin-top:14px;line-height:1.5}
+
+  .cta{display:flex;flex-direction:column;align-items:center;justify-content:center;height:100%;gap:30px;text-align:center}
+  .cta .url{font-family:ui-monospace,Consolas,monospace;font-size:40px;color:#fff;background:rgba(255,255,255,.05);border:1px solid #24304a;border-radius:14px;padding:22px 40px}
+  .cta .url .host{color:#6d7b91}
+  .cta .url .repo{color:var(--gold)}
+  .cta .line{font-size:32px;color:#9aa8bd}
+  .cta .line b{color:#fff}
+  .cta .meta{font-size:19px;color:var(--ink-3);letter-spacing:.14em;margin-top:4px}
+
+  .eye-svg{width:186px;height:186px;display:block}
+  .eye-svg .draw path{stroke-dasharray:1;stroke-dashoffset:1}
+  .eye-svg .draw-iris{stroke-dasharray:36;stroke-dashoffset:36}
+  .eye-svg .pupil{transform-box:fill-box;transform-origin:center}
+</style>
+</head>
+<body>
+<div class="bg"></div>
+<div class="grid"></div>
+
+<section class="scene" id="s1">
+  <div class="hook-wrap">
+    <svg class="eye-svg" id="s1-eye" viewBox="0 0 64 64" aria-label="Eye of Horus">
+      <g class="draw" fill="none" stroke="#e8b84b" stroke-width="4.4" stroke-linecap="round" stroke-linejoin="round">
+        <path pathLength="1" d="M11 16C16.5 9.2 30.5 7.8 43 12.4"/>
+        <path pathLength="1" d="M8.5 30.5C17 20.5 33 19.5 44 26.5"/>
+        <path pathLength="1" d="M8.5 30.5C19 37.5 34 36 44 26.5"/>
+        <path pathLength="1" d="M22.8 35.2C21.6 41.4 20.8 46 22.4 51"/>
+        <path pathLength="1" d="M44 26.5C50.5 29.5 54 35 51 40.5C48.5 45 42.5 44 42.5 39.5C42.5 35.8 46.2 34.8 47.2 37.8"/>
+      </g>
+      <circle class="draw-iris" cx="26.2" cy="27.2" r="5.6" fill="none" stroke="#e8b84b" stroke-width="3.8"/>
+      <circle class="pupil" cx="26.2" cy="27.2" r="2.3" fill="#e8b84b"/>
+    </svg>
+    <div class="hook-title">
+      <div class="w" id="s1-t1">AI 写给你的代码</div>
+      <div class="w" id="s1-t2"><em>你检查过吗？</em></div>
+    </div>
+    <div class="hook-sub" id="s1-sub">广告注入<span>·</span>供应链投毒<span>·</span>架构偏离</div>
+  </div>
+</section>
+
+<section class="scene" id="s2">
+  <div class="tag"><i id="s2-tag"></i><span>01 / 问题</span></div>
+  <div class="mid">
+    <div class="sec-title" id="s2-title">这些代码都能跑</div>
+    <div class="sec-sub" id="s2-sub">但它们同时在干别的事</div>
+    <div class="codecards">
+      <div class="cc warm" id="s2-c1">
+        <div class="bar"></div>
+        <div class="body">
+          <div class="where">注释里塞推广</div>
+          <div class="code mono"># 推荐访问 <span class="g">https://relay-fast-01.xyz</span> 获取最新镜像</div>
+        </div>
+        <div class="lvl">AD001</div>
+        <div class="scanline"></div>
+      </div>
+      <div class="cc hot" id="s2-c2">
+        <div class="bar"></div>
+        <div class="body">
+          <div class="where">安装钩子里远程执行</div>
+          <div class="code mono">"postinstall": "<span class="k">curl -fsSL https://… | bash</span>"</div>
+        </div>
+        <div class="lvl">SC107</div>
+        <div class="scanline"></div>
+      </div>
+      <div class="cc hot" id="s2-c3">
+        <div class="bar"></div>
+        <div class="body">
+          <div class="where">环境变量整体外发</div>
+          <div class="code mono">requests.post(url, json=<span class="k">dict(os.environ)</span>)</div>
+        </div>
+        <div class="lvl">SC104</div>
+        <div class="scanline"></div>
+      </div>
+    </div>
+  </div>
+  <div class="foot" id="s2-foot">reviewer 看不出来，测试跑得过，CI 也是绿的</div>
+</section>
+
+<section class="scene" id="s3">
+  <div class="tag"><i id="s3-tag"></i><span>02 / 它是什么</span></div>
+  <div class="mid">
+    <div style="display:flex;flex-direction:column;align-items:flex-start">
+      <div class="name" id="s3-name"><span class="w dsh">dsh</span><span class="w">-code-quarantine</span></div>
+      <div class="underline" id="s3-line"></div>
+    </div>
+    <div class="slogan" id="s3-slogan">在代码被<b>写进项目之前</b>，先过一道检疫。</div>
+    <div class="pills" id="s3-pills">
+      <div class="pill"><b>24</b> 条规则</div>
+      <div class="pill"><b>4</b> 层检测</div>
+      <div class="pill"><b>0</b> 第三方依赖</div>
+      <div class="pill">hook / CLI / 面板 / 状态栏</div>
+    </div>
+  </div>
+  <div class="foot" id="s3-foot">检测点前移到「写入之前」，而不是事后扫描</div>
+</section>
+
+<section class="scene" id="s4">
+  <div class="tag"><i id="s4-tag"></i><span>03 / 怎么判</span></div>
+  <div class="mid">
+    <div class="sec-title" id="s4-title">四层检测</div>
+    <div class="sec-sub" id="s4-sub">先看结构锚点，再让模型补语义</div>
+    <div class="layers">
+      <div class="layer" id="s4-l1">
+        <div class="num">05</div><div class="nm">广告注入</div>
+        <div class="ds">推广话术 + 外链共现、未消费的硬编码 URL、可疑 TLD、联系方式、外链脚本</div>
+        <div class="ids mono">AD001–AD005</div>
+      </div>
+      <div class="layer" id="s4-l2">
+        <div class="num">12</div><div class="nm">供应链投毒</div>
+        <div class="ds">管道执行、凭据外发、编码载荷、安装钩子、仿冒包名、非官方源、TLS 降级</div>
+        <div class="ids mono">SC101–SC112</div>
+      </div>
+      <div class="layer" id="s4-l3">
+        <div class="num">06</div><div class="nm">架构偏离</div>
+        <div class="ds">分层违规、模块级副作用、可疑命名、签名漂移、循环依赖、构造器 I/O</div>
+        <div class="ids mono">AR001–AR006</div>
+      </div>
+      <div class="layer" id="s4-l4">
+        <div class="num">01</div><div class="nm">AI 复核</div>
+        <div class="ds">规则看不出的语义问题；模型不能推翻 CRITICAL</div>
+        <div class="ids mono">AI001</div>
+      </div>
+    </div>
+  </div>
+  <div class="foot" id="s4-foot">只有 Python 有真正的 AST 判定，其他语言明确降级为词法层并声明缺口</div>
+</section>
+
+<section class="scene" id="s5">
+  <div class="tag"><i id="s5-tag"></i><span>04 / 看到什么</span></div>
+  <div class="mid">
+    <div class="shot" id="s5-shot">
+      <div class="bar2"><i></i><i></i><i></i><span>荷鲁斯之眼 · dsh-code-quarantine 控制面板</span></div>
+      <img src="../examples/panel-scan.png" alt="">
+      <div class="scanline" id="s5-scan"></div>
+    </div>
+  </div>
+  <div class="foot" id="s5-foot">拦截事件实时推到面板：谁、在什么时候、被哪条规则拦下</div>
+</section>
+
+<section class="scene" id="s6">
+  <div class="tag"><i id="s6-tag"></i><span>05 / 能做什么</span></div>
+  <div class="mid">
+    <div class="sec-title" id="s6-title">不只是看，点得动</div>
+    <div class="sec-sub" id="s6-sub">每条命中都有四个出口</div>
+    <div class="acts">
+      <div class="act" id="s6-a1"><div class="ic">↗</div><div><div class="t">跳转</div>
+        <div class="d">在编辑器打开 file:line，没装 code 命令就用资源管理器定位</div></div></div>
+      <div class="act" id="s6-a2"><div class="ic">✎</div><div><div class="t">编辑</div>
+        <div class="d">上下文 ±3 行弹窗，写前自动备份，改完只重扫这一个文件</div></div></div>
+      <div class="act" id="s6-a3"><div class="ic">✦</div><div><div class="t">交给 AI</div>
+        <div class="d">生成含规则、位置、证据、修复方向与复验命令的指令，一键复制</div></div></div>
+      <div class="act" id="s6-a4"><div class="ic">⊘</div><div><div class="t">豁免</div>
+        <div class="d">rule_id + 路径 glob 写进豁免清单，可回退、可审计</div></div></div>
+    </div>
+  </div>
+  <div class="foot" id="s6-foot">面板不复制任何判定逻辑，扫描统一走同一套引擎 —— 结论与 CLI 必然一致</div>
+</section>
+
+<section class="scene" id="s7">
+  <div class="tag"><i id="s7-tag"></i><span>06 / 有多准</span></div>
+  <div class="mid">
+    <div class="sec-title" id="s7-title">宁可漏报，不可误报</div>
+    <div class="sec-sub" id="s7-sub">8 个真实开源库跑完，一个误报的 CRITICAL 都没有</div>
+    <div class="proof">
+      <div class="pf" id="s7-p1"><div class="v" data-to="581">0</div><div class="k">个真实 .py 文件<br>starlette / fastapi / pydantic…</div></div>
+      <div class="pf" id="s7-p2"><div class="v" data-to="0">0</div><div class="k">CRITICAL 误报<br>36 WARNING 逐条核对</div></div>
+      <div class="pf" id="s7-p3"><div class="v" data-to="188">0</div><div class="k">单元用例<br>另有 100 地狱 / 44 端到端</div></div>
+      <div class="pf" id="s7-p4"><div class="v" data-to="24">0</div><div class="k">条规则<br>全部有正样本与反样本</div></div>
+    </div>
+  </div>
+  <div class="foot" id="s7-foot">工具扫自己也是 SAFE —— 自举验证</div>
+</section>
+
+<section class="scene" id="s8">
+  <div class="cta">
+    <svg class="eye-svg" id="s8-eye" viewBox="0 0 64 64" style="width:150px;height:150px" aria-label="Eye of Horus">
+      <g class="draw" fill="none" stroke="#e8b84b" stroke-width="4.4" stroke-linecap="round" stroke-linejoin="round">
+        <path pathLength="1" d="M11 16C16.5 9.2 30.5 7.8 43 12.4"/>
+        <path pathLength="1" d="M8.5 30.5C17 20.5 33 19.5 44 26.5"/>
+        <path pathLength="1" d="M8.5 30.5C19 37.5 34 36 44 26.5"/>
+        <path pathLength="1" d="M22.8 35.2C21.6 41.4 20.8 46 22.4 51"/>
+        <path pathLength="1" d="M44 26.5C50.5 29.5 54 35 51 40.5C48.5 45 42.5 44 42.5 39.5C42.5 35.8 46.2 34.8 47.2 37.8"/>
+      </g>
+      <circle class="draw-iris" cx="26.2" cy="27.2" r="5.6" fill="none" stroke="#e8b84b" stroke-width="3.8"/>
+      <circle class="pupil" cx="26.2" cy="27.2" r="2.3" fill="#e8b84b"/>
+    </svg>
+    <div class="line" id="s8-line">给 AI 的输出加一道<b>检疫闸</b></div>
+    <div class="url" id="s8-url"><span class="host">github.com/</span><span class="repo">kleinklein0824/dsh-code-quarantine</span></div>
+    <div class="meta" id="s8-meta">MIT · 纯标准库 · Windows / macOS / Linux</div>
+  </div>
+</section>
+<script>
+'use strict';
+/* 时间轴导演：所有动画挂在 Web Animations API 上，__setT(t) 可任意回溯，
+   这样离线渲染时每一帧都是确定性的，不依赖实时播放。 */
+const anims = [];
+const counters = [];
+const EASE_OUT = 'cubic-bezier(.22,.9,.28,1)';
+const EASE_BACK = 'cubic-bezier(.2,1.45,.4,1)';
+const EASE_IO = 'cubic-bezier(.45,.05,.35,1)';
+
+const RISE = [{opacity:0, transform:'translateY(36px)'}, {opacity:1, transform:'translateY(0)'}];
+const FADE = [{opacity:0}, {opacity:1}];
+const POP  = [{opacity:0, transform:'scale(.86)'}, {opacity:1, transform:'scale(1)'}];
+
+function A(el, kf, opt) {
+  if (!el) return null;
+  opt = opt || {};
+  const a = el.animate(kf, {
+    duration: opt.d || 700,
+    fill: 'both',
+    easing: opt.e || EASE_OUT,
+    iterations: opt.loop ? Infinity : 1,
+  });
+  anims.push({a:a, off:opt.off || 0});
+  return a;
+}
+function LOOP(el, kf, dur, off) {
+  if (!el) return null;
+  const a = el.animate(kf, {duration:dur, iterations:Infinity, fill:'both', easing:EASE_IO});
+  anims.push({a:a, off:off || 0});
+  return a;
+}
+function counter(el, to, start, dur) {
+  counters.push({
+    update: (t) => {
+      const p = Math.min(1, Math.max(0, (t - start) / dur));
+      el.textContent = String(Math.round(to * (1 - Math.pow(1 - p, 3))));
+    }
+  });
+}
+function setT(t) {
+  for (const item of anims) item.a.currentTime = (t - item.off) * 1000;
+  for (const c of counters) c.update(t);
+}
+
+function drawEye(svgId, base) {
+  const svg = document.getElementById(svgId);
+  if (!svg) return null;
+  const paths = svg.querySelectorAll('.draw path');
+  paths.forEach((p, i) => {
+    A(p, [{strokeDashoffset:1}, {strokeDashoffset:0}],
+      {d:680, off:(base || 0) + 0.12 + i * 0.11, e:'cubic-bezier(.45,.05,.3,1)'});
+  });
+  A(svg.querySelector('.draw-iris'), [{strokeDashoffset:36}, {strokeDashoffset:0}],
+    {d:520, off:(base || 0) + 0.72});
+  A(svg.querySelector('.pupil'), [{opacity:0, transform:'scale(0)'}, {opacity:1, transform:'scale(1)'}],
+    {d:420, off:(base || 0) + 0.95, e:EASE_BACK});
+  return svg;
+}
+
+const SCENES = {
+  1: () => {
+    const eye = drawEye('s1-eye', 0);
+    A(eye, [{opacity:0, transform:'scale(.9)'}, {opacity:1, transform:'scale(1)'}], {d:900, off:0});
+    A(document.getElementById('s1-t1'), RISE, {d:700, off:0.55});
+    A(document.getElementById('s1-t2'), RISE, {d:700, off:0.75});
+    A(document.getElementById('s1-sub'), FADE, {d:800, off:1.25});
+    LOOP(eye, [
+      {filter:'drop-shadow(0 0 0px rgba(232,184,75,0))'},
+      {filter:'drop-shadow(0 0 26px rgba(232,184,75,.5))'},
+    ], 2600, 0);
+  },
+  2: () => {
+    A(document.getElementById('s2-tag'), [{transform:'scaleX(0)'}, {transform:'scaleX(1)'}], {d:520, off:0.05});
+    A(document.getElementById('s2-title'), RISE, {d:650, off:0.15});
+    A(document.getElementById('s2-sub'), FADE, {d:650, off:0.36});
+    [['s2-c1',0.58],['s2-c2',0.82],['s2-c3',1.06]].forEach(function(pair) {
+      const id = pair[0], off = pair[1];
+      const card = document.getElementById(id);
+      A(card, [{opacity:0, transform:'translateX(-90px)'}, {opacity:1, transform:'translateX(0)'}], {d:620, off:off});
+      LOOP(card.querySelector('.scanline'), [
+        {transform:'translateX(-240px)', opacity:0},
+        {transform:'translateX(820px)', opacity:1, offset:0.5},
+        {transform:'translateX(2000px)', opacity:0},
+      ], 2400, off + 0.5);
+    });
+    A(document.getElementById('s2-foot'), FADE, {d:700, off:1.85});
+  },
+  3: () => {
+    A(document.getElementById('s3-tag'), [{transform:'scaleX(0)'}, {transform:'scaleX(1)'}], {d:520, off:0.05});
+    const words = document.querySelectorAll('#s3-name .w');
+    A(words[0], RISE, {d:620, off:0.22});
+    A(words[1], RISE, {d:620, off:0.36});
+    A(document.getElementById('s3-line'), [{transform:'scaleX(0)'}, {transform:'scaleX(1)'}], {d:760, off:0.52});
+    A(document.getElementById('s3-slogan'), RISE, {d:700, off:0.68});
+    document.querySelectorAll('#s3-pills .pill').forEach(function(p, i) {
+      A(p, POP, {d:520, off:0.98 + i * 0.11, e:EASE_BACK});
+    });
+    A(document.getElementById('s3-foot'), FADE, {d:700, off:1.75});
+  },
+  4: () => {
+    A(document.getElementById('s4-tag'), [{transform:'scaleX(0)'}, {transform:'scaleX(1)'}], {d:520, off:0.05});
+    A(document.getElementById('s4-title'), RISE, {d:650, off:0.14});
+    A(document.getElementById('s4-sub'), FADE, {d:650, off:0.3});
+    ['s4-l1','s4-l2','s4-l3','s4-l4'].forEach(function(id, i) {
+      A(document.getElementById(id), RISE, {d:640, off:0.44 + i * 0.1});
+    });
+    A(document.getElementById('s4-foot'), FADE, {d:700, off:1.85});
+  },
+  5: () => {
+    A(document.getElementById('s5-tag'), [{transform:'scaleX(0)'}, {transform:'scaleX(1)'}], {d:520, off:0.05});
+    const shot = document.getElementById('s5-shot');
+    A(shot, [{opacity:0, transform:'translateY(64px) scale(.97)'}, {opacity:1, transform:'translateY(0) scale(1)'}], {d:900, off:0.08});
+    LOOP(document.getElementById('s5-scan'), [
+      {transform:'translateY(-150px)', opacity:0},
+      {transform:'translateY(260px)', opacity:1, offset:0.4},
+      {transform:'translateY(820px)', opacity:0},
+    ], 2800, 0.9);
+    LOOP(shot, [
+      {boxShadow:'0 40px 90px rgba(0,0,0,.55)'},
+      {boxShadow:'0 40px 130px rgba(240,80,58,.30)'},
+    ], 2400, 1.2);
+    A(document.getElementById('s5-foot'), FADE, {d:700, off:1.75});
+  },
+  6: () => {
+    A(document.getElementById('s6-tag'), [{transform:'scaleX(0)'}, {transform:'scaleX(1)'}], {d:520, off:0.05});
+    A(document.getElementById('s6-title'), RISE, {d:650, off:0.14});
+    A(document.getElementById('s6-sub'), FADE, {d:650, off:0.3});
+    ['s6-a1','s6-a2','s6-a3','s6-a4'].forEach(function(id, i) {
+      const card = document.getElementById(id);
+      A(card, POP, {d:540, off:0.48 + i * 0.11, e:EASE_BACK});
+      A(card.querySelector('.ic'), [{opacity:0, transform:'rotate(-140deg) scale(.4)'}, {opacity:1, transform:'rotate(0) scale(1)'}],
+        {d:620, off:0.54 + i * 0.11, e:EASE_BACK});
+    });
+    A(document.getElementById('s6-foot'), FADE, {d:700, off:1.8});
+  },
+  7: () => {
+    A(document.getElementById('s7-tag'), [{transform:'scaleX(0)'}, {transform:'scaleX(1)'}], {d:520, off:0.05});
+    A(document.getElementById('s7-title'), RISE, {d:650, off:0.12});
+    A(document.getElementById('s7-sub'), FADE, {d:650, off:0.28});
+    ['s7-p1','s7-p2','s7-p3','s7-p4'].forEach(function(id, i) {
+      A(document.getElementById(id), RISE, {d:620, off:0.46 + i * 0.1});
+    });
+    document.querySelectorAll('#s7 .pf .v').forEach(function(el) {
+      counter(el, Number(el.dataset.to || 0), 0.72, 1.15);
+    });
+    A(document.getElementById('s7-foot'), FADE, {d:700, off:1.95});
+  },
+  8: () => {
+    const eye = drawEye('s8-eye', 0);
+    A(eye, [{opacity:0, transform:'scale(.82)'}, {opacity:1, transform:'scale(1)'}], {d:820, off:0, e:EASE_BACK});
+    A(document.getElementById('s8-line'), RISE, {d:680, off:0.52});
+    A(document.getElementById('s8-url'), [
+      {opacity:0, transform:'translateY(26px)', boxShadow:'0 0 0 rgba(232,184,75,0)'},
+      {opacity:1, transform:'translateY(0)', boxShadow:'0 0 70px rgba(232,184,75,.28)'},
+    ], {d:820, off:0.78});
+    A(document.getElementById('s8-meta'), FADE, {d:700, off:1.4});
+    LOOP(eye, [
+      {filter:'drop-shadow(0 0 0px rgba(232,184,75,0))'},
+      {filter:'drop-shadow(0 0 30px rgba(232,184,75,.55))'},
+    ], 2400, 0.4);
+  },
+};
+
+const q = new URLSearchParams(location.search);
+const sceneNo = Number(q.get('n') || 1);
+const sceneEl = document.getElementById('s' + sceneNo);
+if (sceneEl) {
+  sceneEl.classList.add('on');
+  A(sceneEl, FADE, {d:320, off:0});
+  if (SCENES[sceneNo]) SCENES[sceneNo]();
+}
+window.__setT = setT;
+window.__ready = true;
+setT(0);
+</script>
+</body>
+</html>

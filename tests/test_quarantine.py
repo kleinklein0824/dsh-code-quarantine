@@ -14,12 +14,13 @@ import sys
 import tempfile
 import time
 import unittest
+from unittest import mock
 
 HERE = os.path.dirname(os.path.abspath(__file__))
 ROOT = os.path.dirname(HERE)
 sys.path.insert(0, os.path.join(ROOT, "scripts"))
 
-from qcore import history, payload, yamlite  # noqa: E402
+from qcore import history, lexer, payload, yamlite  # noqa: E402
 from qcore.config import Config  # noqa: E402
 from qcore.lexer import Source  # noqa: E402
 from qcore.rules import arch  # noqa: E402
@@ -198,17 +199,27 @@ class LexerContract(unittest.TestCase):
         src = Source("a.html", html)
         self.assertEqual("string", src.region(html.index("https://")))
 
-    def test_pathologically_nested_expression_does_not_crash_lexer(self):
-        """`ast.parse` 是递归下降的，操作数极多的单行表达式会撑爆 C 栈。
+    def test_recursion_error_degrades_to_lexical_only(self):
+        """解析器抛 `RecursionError` 时，词法规则必须继续工作。"""
+        text = "x = 1  # keep scanning this comment\n"
+        with mock.patch.object(
+            lexer.ast, "parse", side_effect=RecursionError("parser stack exhausted")
+        ):
+            src = Source("deep.py", text)
+        self.assertIsNone(src.tree)
+        self.assertTrue(src.parse_error.startswith("recursion:"))
+        self.assertEqual("comment", src.region(text.index("#")))
 
-        这是文件本身的属性，不是扫描器的 bug：``RecursionError`` 一旦逃出
-        ``Source``，整个项目的审计会连同后面所有文件一起中断。正确行为是
-        降级为「没有 AST」，词法层（注释/字符串 spans）照常工作。
+    def test_pathologically_nested_expression_does_not_crash_lexer(self):
+        """超长表达式不能中断构造；不同解析器允许成功或降级。
+
+        Python 3.11+ 的递归实现可能抛 ``RecursionError``，而 3.9/3.10 可以
+        成功建树。测试不能把某个解释器的栈深度当作产品契约；真正的要求是
+        不抛异常，并在失败时降级到词法分析。
         """
         text = "x = " + " + ".join(["1"] * 60000) + "\n"
         src = Source("deep.py", text)
-        self.assertIsNone(src.tree)
-        self.assertTrue(src.parse_error)
+        self.assertTrue(src.tree is not None or src.parse_error)
 
     def test_snippet_scan_survives_pathologically_nested_expression(self):
         """同样的输入走 ``scan_text``（写入前 hook 的入口）也不能抛异常。"""
