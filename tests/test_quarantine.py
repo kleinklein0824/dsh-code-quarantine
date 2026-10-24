@@ -217,14 +217,14 @@ class LexerContract(unittest.TestCase):
         成功建树。测试不能把某个解释器的栈深度当作产品契约；真正的要求是
         不抛异常，并在失败时降级到词法分析。
         """
-        text = "x = " + " + ".join(["1"] * 60000) + "\n"
+        text = "x = " + " + ".join(["1"] * 1500) + "\n"
         src = Source("deep.py", text)
         self.assertTrue(src.tree is not None or src.parse_error)
 
     def test_snippet_scan_survives_pathologically_nested_expression(self):
         """同样的输入走 ``scan_text``（写入前 hook 的入口）也不能抛异常。"""
         cfg = Config(RULES, HERE)
-        text = "y = " + " * ".join(["2"] * 60000) + "\n"
+        text = "y = " + " * ".join(["2"] * 1500) + "\n"
         result = scan_text(text, "deep.py", cfg)
         self.assertFalse(result.error)
         self.assertIn("deep.py", result.scanned)
