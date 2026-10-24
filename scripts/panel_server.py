@@ -910,7 +910,23 @@ class Handler(BaseHTTPRequestHandler):
                     if not first_sent:
                         first_sent = True
                     else:
-                        self.panel._event_signal.wait(timeout=20)
+                        # A plain wait can lose a notification that arrives after
+                        # the previous frame is flushed but before this thread
+                        # actually sleeps. Take a snapshot and wait on a predicate
+                        # so an already-advanced counter wakes us immediately.
+                        snapshot = (
+                            self.panel._seq,
+                            self.panel._history_rev,
+                            self.panel._config_rev,
+                        )
+                        self.panel._event_signal.wait_for(
+                            lambda: (
+                                self.panel._seq,
+                                self.panel._history_rev,
+                                self.panel._config_rev,
+                            ) != snapshot,
+                            timeout=20,
+                        )
                 seq = self.panel._seq
                 hist = self.panel._history_rev
                 conf = self.panel._config_rev
