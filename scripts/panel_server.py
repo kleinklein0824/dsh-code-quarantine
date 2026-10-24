@@ -912,19 +912,15 @@ class Handler(BaseHTTPRequestHandler):
                     else:
                         # A plain wait can lose a notification that arrives after
                         # the previous frame is flushed but before this thread
-                        # actually sleeps. Take a snapshot and wait on a predicate
-                        # so an already-advanced counter wakes us immediately.
-                        snapshot = (
-                            self.panel._seq,
-                            self.panel._history_rev,
-                            self.panel._config_rev,
-                        )
+                        # actually sleeps. Compare against what was already sent,
+                        # not a fresh snapshot: an event that landed during that
+                        # gap must make the predicate true immediately.
                         self.panel._event_signal.wait_for(
                             lambda: (
-                                self.panel._seq,
-                                self.panel._history_rev,
-                                self.panel._config_rev,
-                            ) != snapshot,
+                                self.panel._seq > last
+                                or self.panel._history_rev != seen_history
+                                or self.panel._config_rev != seen_config
+                            ),
                             timeout=20,
                         )
                 seq = self.panel._seq
