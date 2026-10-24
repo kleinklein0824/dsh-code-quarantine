@@ -70,7 +70,6 @@ def main() -> int:
     counts = result.counts()
     if not (counts["CRITICAL"] or counts["WARNING"]):
         return 0
-    print(hookio.format_findings(result), file=sys.stderr)
     hookio.notify_panel(cfg.project_root, {
         "type": "post-write",
         "tool": str(payload.get("tool_name") or ""),
@@ -79,7 +78,13 @@ def main() -> int:
         "counts": counts,
         "findings": [f.to_dict() for f in result.sorted_findings()[:8]],
     })
-    return 2 if counts["CRITICAL"] else 0
+    if not counts["CRITICAL"]:
+        # The file already landed and nothing is blocking, so stderr would only be
+        # rendered by the host as a red `Error:` on a tool call that in fact
+        # succeeded. The WARNING reaches the card through `notify_panel` instead.
+        return 0
+    print(hookio.format_findings(result), file=sys.stderr)
+    return 2
 
 
 if __name__ == "__main__":

@@ -12,7 +12,7 @@
 
 实测来源：
 - `tests/idea_matrix.py` —— 83 个断言，逐条跑真实引擎（`python tests/idea_matrix.py`）
-- `tests/test_quarantine.py` —— 144 个单元用例（+ `test_security.py` 27 个）
+- `tests/test_quarantine.py` —— 175 个单元用例（+ `test_security.py` 27 个）
 - `tests/brutal_suite.py` —— 100 个功能用例
 - `tests/realworld_regression.py` —— 8 个真实库 581 文件误报回归
 - `dsh-plugin/test-{gate,e2e,loader,state}.mjs` —— DSH 写入闸门四层测试（23 + 7 + 7 + 60）
@@ -164,12 +164,12 @@
 
 ```bash
 python tests/idea_matrix.py            # 83 条逐条断言
-python -m unittest discover -s tests   # 188 个单元用例
+python -m unittest discover -s tests   # 202 个单元用例
 python tests/brutal_suite.py           # 100 个功能用例
 python tests/realworld_regression.py   # 8 库 581 文件误报回归
 node dsh-plugin/test-gate.mjs          # DSH 闸门决策层 23 项
 node dsh-plugin/test-e2e.mjs           # DSH 闸门注册表层 7 项
 node dsh-plugin/test-loader.mjs        # DSH 闸门加载器层 7 项
-node dsh-plugin/test-state.mjs         # 状态机 / RPC / 面板桥 72 项
-node dsh-plugin/test-client.mjs        # 卡片交互 / 二次点击 / 会话隔离 24 项
+node dsh-plugin/test-state.mjs         # 状态机 / RPC / 面板桥 92 项
+node dsh-plugin/test-client.mjs        # 卡片交互 / 二次点击 / 会话隔离 36 项
 ```

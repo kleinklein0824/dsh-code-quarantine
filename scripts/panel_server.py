@@ -112,6 +112,21 @@ class Panel:
         self._lock = threading.Lock()
         self.events = deque(maxlen=50)
         self._seq = 0
+        # 拦截事件的推送条件变量：`/api/events/stream` 的读线程在这里等待，
+        # `add_event` 落库后叫醒它们。轮询版本每 3 秒问一次，一次拦截最多要
+        # 等满一个周期才出现在横幅上；条件变量把延迟压到「写完就通知」。
+        self._event_signal = threading.Condition()
+        # 修复历史长了几条。历史页靠它决定要不要重读，而不是每 4 秒开一次文件。
+        self._history_rev = 0
+        # 配置文件的版本号：手改 `.dsh-quarantine.yml`、或者另一块面板保存，
+        # 这个进程里的 `state()` 就过期了。后台线程盯着 mtime，变了就涨版本并
+        # 通知流，页面跟着重读——用户不必再按 F5 才知道规则已经被改过。
+        self._config_rev = 0
+        self._config_stamps: tuple = ()
+        # 历史文件也可能被另一块面板（插件卡片）写入。这个进程里的 `_history_rev`
+        # 只知道自己写的那几笔；不盯着文件的话，浏览器历史页会一直显示旧内容。
+        self._history_stamp: tuple = ()
+        self._watch_stop = threading.Event()
 
     # ------------------------------------------------------------- config io
     def _base_config(self) -> Config:
@@ -297,8 +312,13 @@ class Panel:
         with self._lock:
             self._atomic_write(cfg_path, "\n".join(lines).rstrip() + "\n")
 
-        ignore_lines = [str(x).strip() for x in (payload.get("ignore") or []) if str(x).strip()]
-        self.write_ignore(ignore_lines, root)
+        # 只有载荷**明确带了** ignore 才重写豁免文件。缺失与空列表是两回事：
+        # 前者是「这次保存不涉及豁免」，后者才是「豁免清空」。把两者都当空列表，
+        # 等于任何一个只保存规则或白名单的调用方都会把用户的豁免清单抹掉 ——
+        # 而那份清单是手写积累的，抹掉没有任何提示。
+        if "ignore" in payload:
+            ignore_lines = [str(x).strip() for x in (payload.get("ignore") or []) if str(x).strip()]
+            self.write_ignore(ignore_lines, root)
 
         # 保存后立即回读，确认写出去的东西能被自己解析（否则配置静默失效）
         check = self.config(root)
@@ -395,6 +415,12 @@ class Panel:
             data["llm"] = merged
         cfg = llm.resolve(data)
         info = cfg.public()
+        if cfg.error:
+            return {"ok": False, "error": "端点无效：%s" % cfg.error, "config": info}
+        # "测试连接" answers "can this endpoint be reached with these values?", not
+        # "will scans use it?". A user who turned the layer off in the form is
+        # still allowed to validate the endpoint before turning it back on.
+        cfg.enabled = True
         if not cfg.ready:
             missing = [k for k in ("base_url", "model", "api_key") if not getattr(cfg, k)]
             return {"ok": False, "error": "缺少 %s" % " / ".join(missing), "config": info}
@@ -587,9 +613,20 @@ class Panel:
             "remaining_ids": sorted({str(f.get("rule_id") or "") for f in remaining if f.get("rule_id")}),
         }
         try:
-            history.append(root, entry)
+            written = history.append(root, entry)
         except Exception:  # noqa: BLE001 - 历史是旁路，任何异常都不能影响写入结果
-            pass
+            return
+        # `history.append` 用返回值而不是异常表示写失败（它自己吞掉 OSError）。
+        # 不检查返回值就会在没写进去时也涨版本号，页面重读一次仍然是旧内容。
+        if not written:
+            return
+        # 这一笔是本进程写的，记下新指纹，避免监听线程把它当外部改动再推一帧。
+        if os.path.normcase(os.path.realpath(root)) == os.path.normcase(os.path.realpath(self.target)):
+            self._history_stamp = self._file_stamp(history.history_path(root))
+        # 只有真的写进去了才涨版本号：写失败时重读也读不到东西。
+        with self._event_signal:
+            self._history_rev += 1
+            self._event_signal.notify_all()
 
     def read_history(self, target: str | None = None, limit: int = 50,
                      verify: bool = False) -> dict:
@@ -686,6 +723,8 @@ class Panel:
             "findings": (payload.get("findings") or [])[:8],
         }
         self.events.appendleft(event)
+        with self._event_signal:
+            self._event_signal.notify_all()
         return {"ok": True, "id": self._seq}
 
     def events_list(self) -> dict:
@@ -713,6 +752,79 @@ class Panel:
             os.unlink(os.path.join(self.target, ".dsh-quarantine-panel.json"))
         except OSError:
             pass
+
+    # ------------------------------------------------------- 配置变更监听
+    @staticmethod
+    def _file_stamp(path: str) -> tuple:
+        """`(mtime_ns, size)`，文件不存在时返回 `(0, 0)`。"""
+        try:
+            info = os.stat(path)
+            return (int(info.st_mtime_ns), info.st_size)
+        except OSError:
+            return (0, 0)
+
+    def _config_stamp(self) -> tuple:
+        """当前配置文件的 (mtime, size) 指纹。
+
+        只看这两项而不是内容哈希：配置文件很小，但哈希要每次开文件读一遍；
+        mtime+size 对「有人手改了一下」足够敏感，而假阳性只会多刷一次页面。
+        """
+        root = os.path.realpath(os.path.abspath(self.target))
+        stamp = []
+        for name in (PROJECT_CONFIG, IGNORE_FILE):
+            try:
+                info = os.stat(os.path.join(root, name))
+                stamp.append((name, int(info.st_mtime_ns), info.st_size))
+            except OSError:
+                stamp.append((name, 0, 0))
+        return tuple(stamp)
+
+    def _watch_configs(self, interval: float = 2.0) -> None:
+        """后台盯着配置与历史文件，变了就涨版本并叫醒所有打开的页面。
+
+        手改 `.dsh-quarantine.yml` 是常态（那本来就是个给人写的文件），而面板
+        的规则页只在打开时读一次。没有这个监听，用户改完文件得自己按 F5 才
+        知道生效了没有——而「以为生效了」比「知道没生效」危险得多。
+
+        历史文件也要盯：插件卡片的「一键修复」写的是同一份 JSONL，浏览器面板
+        不知道它什么时候长了一行。只看 `_history_rev` 会漏掉另一半入口。
+        """
+        # `_config_stamp()` returns a tuple of `(name, mtime, size)` triples. It is
+        # compared, never looked up by key, so it stays a tuple: `dict()` on it
+        # raises "dictionary update sequence element #0 has length 3; 2 is required",
+        # which killed this watcher on its first statement and left the panel
+        # silently showing stale config.
+        self._config_stamps = self._config_stamp()
+        self._history_stamp = self._file_stamp(history.history_path(self.target))
+        while not self._watch_stop.wait(interval):
+            changed = False
+            try:
+                current = self._config_stamp()
+            except Exception:  # noqa: BLE001 - 监听线程不能因为一次 stat 失败就死
+                current = self._config_stamps
+            if current != self._config_stamps:
+                self._config_stamps = current
+                self._config_rev += 1
+                changed = True
+            try:
+                history_now = self._file_stamp(history.history_path(self.target))
+            except Exception:  # noqa: BLE001
+                history_now = self._history_stamp
+            if history_now != self._history_stamp:
+                self._history_stamp = history_now
+                self._history_rev += 1
+                changed = True
+            if not changed:
+                continue
+            with self._event_signal:
+                self._event_signal.notify_all()
+
+    def start_config_watch(self, interval: float = 2.0) -> None:
+        worker = threading.Thread(target=self._watch_configs, args=(interval,), daemon=True)
+        worker.start()
+
+    def stop_config_watch(self) -> None:
+        self._watch_stop.set()
 
 
 class Handler(BaseHTTPRequestHandler):
@@ -762,6 +874,78 @@ class Handler(BaseHTTPRequestHandler):
     def _json(self, data, status: int = 200) -> None:
         self._send(status, json.dumps(data, ensure_ascii=False).encode("utf-8"),
                    "application/json; charset=utf-8")
+
+    def _stream_events(self) -> None:
+        """把拦截事件和修复历史的变化推给浏览器，而不是让浏览器定时来问。
+
+        `ThreadingHTTPServer` 每个连接一个线程，所以这条长连接只占一个线程；
+        `seq` 作为 SSE 的 `id:` 字段，浏览器断线重连时带 `Last-Event-ID` 回来，
+        这里据此补发漏掉的事件——轮询版本靠 `LAST_EVENT` 自己记，一刷新就丢。
+
+        一帧里同时带 `history`（修复历史版本号）：历史页原来每 4 秒开一次
+        JSONL 文件，而「历史长了」这件事恰恰是写入方自己知道的，没必要轮询。
+        """
+        try:
+            last = int(self.headers.get("Last-Event-ID") or 0)
+        except ValueError:
+            last = 0
+        seen_history = self.panel._history_rev
+        seen_config = self.panel._config_rev
+        first_sent = False
+        sent_once = False
+        self.send_response(200)
+        self.send_header("Content-Type", "text/event-stream; charset=utf-8")
+        self.send_header("Cache-Control", "no-store, no-transform")
+        self.send_header("X-Content-Type-Options", "nosniff")
+        self.send_header("X-Frame-Options", "DENY")
+        self.end_headers()
+        try:
+            self.wfile.write(b"retry: 3000\n\n")
+            self.wfile.flush()
+            while True:
+                # 首帧立刻发，别等第一个事件：页面刚打开时横幅区域要是空的，
+                # 用户没法判断是「还没发生拦截」还是「连接根本没建起来」。
+                # 之后的每一帧都是真变化。
+                with self.panel._event_signal:
+                    if not first_sent:
+                        first_sent = True
+                    else:
+                        self.panel._event_signal.wait(timeout=20)
+                seq = self.panel._seq
+                hist = self.panel._history_rev
+                conf = self.panel._config_rev
+                if seq == last and hist == seen_history and conf == seen_config and sent_once:
+                    # 20 秒没有变化：写一行注释保活。客户端会忽略注释行，
+                    # 但代理和操作系统都需要看到字节流动，否则会掐掉连接。
+                    self.wfile.write(b": keep-alive\n\n")
+                    self.wfile.flush()
+                    continue
+                pending = []
+                # `events` 是 appendleft 的，所以列表本身是新的在前。补发要按
+                # 时间正序，但筛选条件是「比 Last-Event-ID 新」——在正序上遇到
+                # 第一条旧的不能 break，后面还有更新的（重连时漏的正是中间那段）。
+                for event in list(self.panel.events):
+                    if event["id"] <= last:
+                        continue
+                    pending.append(event)
+                pending.reverse()
+                # 没有新拦截但有新修复/新配置时也要发一帧：只带版本号，不带事件。
+                for event in pending or [None]:
+                    body = json.dumps(
+                        {"seq": seq, "history": hist, "config": conf, "event": event},
+                        ensure_ascii=False,
+                    )
+                    frame_id = event["id"] if event else last
+                    self.wfile.write(("id: %d\ndata: %s\n\n" % (frame_id, body)).encode("utf-8"))
+                    if event:
+                        last = event["id"]
+                seen_history = hist
+                seen_config = conf
+                sent_once = True
+                self.wfile.flush()
+        except (BrokenPipeError, ConnectionResetError, OSError):
+            # 用户关掉页面：正常收场，不打印堆栈。
+            return
 
     def _body(self) -> dict:
         length = int(self.headers.get("Content-Length") or 0)
@@ -818,6 +1002,12 @@ class Handler(BaseHTTPRequestHandler):
                 self._json({"error": "token 无效"}, 403)
                 return
             self._json(self.panel.events_list())
+            return
+        if parsed.path == "/api/events/stream":
+            if not self._authorized(query):
+                self._json({"error": "token 无效"}, 403)
+                return
+            self._stream_events()
             return
         if parsed.path == "/api/history":
             if not self._authorized(query):
@@ -946,11 +1136,15 @@ def main(argv=None) -> int:
             print("  （未找到 Chrome/Edge，已用默认浏览器打开；想要独立窗口请装 Chrome）", flush=True)
 
     threading.Timer(0.5, _launch).start()
+    # 手改配置文件是常态，而页面只在打开时读一次。没有这个监听，用户改完
+    # 得自己按 F5 才知道生效了没有。
+    Handler.panel.start_config_watch()
     try:
         httpd.serve_forever()
     except KeyboardInterrupt:
         print("\n已退出")
     finally:
+        Handler.panel.stop_config_watch()
         Handler.panel.clear_info()
         httpd.server_close()
     return 0

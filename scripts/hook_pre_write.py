@@ -44,6 +44,7 @@ def main() -> int:
 
     worst = 0
     messages = []
+    saw_critical = False
     for path, text, kind in edits:
         if not text.strip():
             continue
@@ -64,22 +65,39 @@ def main() -> int:
         counts = result.counts()
         if counts["CRITICAL"] or counts["WARNING"]:
             messages.append(hookio.format_findings(result))
-            # 推给控制面板：用户开着面板时能立刻看到"刚才这一笔被拦了"
-            hookio.notify_panel(cfg.project_root, {
+            event = {
                 "type": "pre-write",
                 "tool": str(payload.get("tool_name") or ""),
                 "file": rel,
                 "verdict": result.verdict(),
                 "counts": counts,
                 "findings": [f.to_dict() for f in result.sorted_findings()[:8]],
-            })
+            }
+            # 推给控制面板：用户开着面板时能立刻看到"刚才这一笔被拦了"
+            hookio.notify_panel(cfg.project_root, event)
+            # 再写一份给包装层（DSH 插件）：它要的是计数，不是给人看的报告，
+            # 走文件而不是 stderr，这样放行时屏幕上是干净的。
+            hookio.write_report(event)
         if counts["CRITICAL"]:
             worst = 2
+            saw_critical = True
         elif counts["WARNING"] and BLOCK_ON == "warning":
             worst = max(worst, 2)
 
-    if messages:
+    # Only speak when actually blocking. Hosts render *any* non-empty stderr from a
+    # hook as a red `Error:` in the transcript, so reporting an allowed WARNING there
+    # makes a normal write look like a failed one and sends the user hunting for a
+    # problem that does not exist. The WARNING is already delivered to the card via
+    # `notify_panel` — an amber icon is what "seen but not blocked" should look like.
+    if worst == 2 and messages:
         print("\n\n".join(messages), file=sys.stderr)
+        if BLOCK_ON == "warning" and not saw_critical:
+            # 被拦的原因只是阈值，不是危险等级；不说清楚用户会以为这段代码真有毒。
+            print(
+                "[dsh-code-quarantine] 拦截级别被设为「CRITICAL + WARNING」：本条只有 WARNING 命中，"
+                "按该级别同样被拦。把级别改回「仅 CRITICAL」即可放行这类改动。",
+                file=sys.stderr,
+            )
     return worst
 
 

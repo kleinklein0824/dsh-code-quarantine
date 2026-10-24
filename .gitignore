@@ -14,7 +14,13 @@ __pycache__/
 .tmp-shots/
 .tmp-logo/
 .demo/
+.shots/
+# 宣传片的中间产物（build.py 会重新生成）
+promo/frames/
+promo/clips/
+promo/bgm.wav
 
 # 发布包与校验文件作为 GitHub Release 附件，不进入源码历史。
 *.zip
 /SHA256SUMS.txt
+/release/

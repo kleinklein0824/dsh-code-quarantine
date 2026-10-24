@@ -10,6 +10,13 @@ AI 输出特有威胁设计，并且默认走"宁可漏报，不可误报"的精
 
 > 完整功能清单与成熟度评估见 **[FEATURES.md](FEATURES.md)**（24 条规则、四层入口、实测数据、诚实的缺口清单）。
 
+<p align="center">
+  <a href="promo/dsh-code-quarantine-promo.mp4"><img src="promo/poster.jpg" width="880" alt="36 秒宣传片"></a><br>
+  <a href="promo/dsh-code-quarantine-promo.mp4">▶ 36 秒宣传片</a> · 1920×1080 · 24fps · 3.5 MB · 含原创配乐
+</p>
+
+![预览](promo/preview.gif)
+
 ## 安装后的三个入口
 
 | 入口 | 怎么用 | 形态 |
@@ -134,6 +141,7 @@ python scripts/panel_server.py --target /path/to/project
 
 | 标签页 | 能做什么 |
 | --- | --- |
+| 实时监测 | **默认页，无需点任何按钮**：会话第一次工具调用起，每次被拦的写入/命令立刻出现在这里（文件、判定、命中规则、消息），带「已检查 / 命中」计数与监控中的状态灯 |
 | 扫描结果 | 跑全量/增量扫描、按级别过滤、展开证据与修复建议；每行可 **跳转 / 编辑 / 交给 AI / 豁免** |
 | 规则开关 | 24 条规则逐条开关 + 调级别，保存即生效 |
 | 白名单 | 信任域名 / 黑名单 / 私有 registry / 允许的 CDN |
@@ -150,9 +158,28 @@ python scripts/panel_server.py --target /path/to/project
 
 记录是**写入时的快照**，而代码会继续变。所以两边打开历史时都带 `verify=1`，
 由服务端逐条回读磁盘标注状态：`current`（改动还在）、`reverted`（有人撤回去了）、
-`stale`（被改成第三种样子）、`gone`（文件不在了）。停在历史页时每 4 秒重读一次——
-一条三天前的「已修复」在你 `git checkout` 之后必须立刻显示为「已被撤回」，否则
-它就是一条看起来和刚写的一样可信的假消息。
+`stale`（被改成第三种样子）、`gone`（文件不在了）。一条三天前的「已修复」在你
+`git checkout` 之后必须立刻显示为「已被撤回」，否则它就是一条看起来和刚写的一样
+可信的假消息。
+
+### 一切都是推送，没有轮询
+
+面板与卡片都开一条 SSE 长连接（`/api/events/stream`、`/dsh-code-quarantine/events`），
+状态一变由服务端主动推一帧：
+
+| 变化 | 谁推 | 界面反应 |
+| --- | --- | --- |
+| 一次拦截 / 放行 | 闸门写完就推 | 卡片图标立刻变色、面板横幅立刻出现 |
+| 「保存这一行」 | 历史版本号 +1 | 历史页立刻重读 |
+| 保存规则 / 白名单 / 豁免 | 配置版本号 +1 | 卡片表单立刻重读（正在编辑时不动，免得抹掉输入） |
+| 手改 `.dsh-quarantine.yml` / `-ignore` | 服务端 2 秒一次 stat 比对 | 面板与卡片都自动刷新 |
+| 切换拦截级别 | 开关本身 | 立刻反映到图标 |
+
+用轮询的话，一次落在 tick 之后的拦截要等满一个周期才显示，而这段空窗是看不见的——
+图标只是显得平静。推送没有这个窗口。
+
+配置监听只看 `mtime` + `size`，不做内容哈希：假阳性只是多刷一次页面，而每 2 秒
+把配置文件完整哈希一遍的代价是真的。
 
 表单只渲染它认识的字段，保存时按字段**合并**进现有配置：手写在 `.dsh-quarantine.yml`
 里的 `api_key`、别人加的 `timeout`，不会因为你点了一下「保存规则」就被抹掉。
@@ -215,7 +242,7 @@ plugin_manager install_bundle  target = /path/to/dsh-code-quarantine/dsh-plugin
 以及 `bash` / `ops_bash` / `pwsh` 的命令串。命中 CRITICAL 返回 `{kind:'deny'}`，
 **被拒的调用根本不会到达工具本体**。
 
-点开图标是一张**与本地控制面板同构的卡片**——六个标签页（扫描结果 / 规则开关 /
+点开图标是一张**与本地控制面板同构的卡片**——七个标签页（实时监测 / 扫描结果 / 规则开关 /
 白名单 / 豁免 / AI 复核 / 修复历史），能力与 `panel_server.py` 那套一致。卡片不发 HTTP 到面板
 进程，而是经 `/dsh-code-quarantine/rpc` → `scripts/panel_bridge.py` → 同一个
 `Panel` 对象：**判定逻辑与写配置逻辑只有一份**，不会出现「面板里关掉的规则，
@@ -227,7 +254,7 @@ plugin_manager install_bundle  target = /path/to/dsh-code-quarantine/dsh-plugin
 `/api/history` 与 RPC `panel{op:'history'}` 读，面板与卡片渲染同一份数据。
 
 两边读的时候都带 `verify=1`：服务端逐条回读磁盘，标出这条记录**现在**还算不算数
-（`current` / `reverted` / `stale` / `gone`），页面停在历史标签时每 4 秒重读一次。
+（`current` / `reverted` / `stale` / `gone`），随推送即时刷新。
 没有这一步，一条三天前的「已修复」在用户 `git checkout` 之后仍显示为已修复。
 
 卡片把当前会话的工作区当作扫描目标（标题下会显示该路径），Host 侧拒绝相对路径
@@ -239,14 +266,27 @@ plugin_manager install_bundle  target = /path/to/dsh-code-quarantine/dsh-plugin
 `exec.agent.session.id`。两个窗口开两个项目时互不影响——在 A 窗口关掉拦截不会关掉
 B 窗口，A 窗口拦下的 CRITICAL 也不会把 B 窗口的图标涂红。
 
+**总开关**在整个安装级别，持久化在 `$DSH_HOME/dsh-code-quarantine.settings.json`。
+关闭后写入拦截与会话创建时的自动审计都停用，图标变灰，但手动扫描与配置页仍然可用。
+打开（默认）时，每个新会话创建后会自动对它的工作区跑一次全量审计：结果进入图标，
+完整命中表由 Host 缓存、卡片按 `scanRev` 取一次，所以状态帧仍然只带计数。
+审计走与卡片相同的 `Panel.scan`，与手动扫描、CLI 结论一致。
+
+**实时监测不需要任何点击**：每次写入/命令被拦时，Host 在 `inspect()` 里就往该会话的
+实时轨迹追加一条（文件、判定、规则、消息），并把 `liveRev` 推到卡片；卡片按这个计数
+拉一次 `live-log`。工作区来自 `session.header.cwd`，**卡片从没被打开过也照样监测**——
+否则「打开卡片」就成了隐式的启动开关。条目按 `resolve` + 分隔符前缀判定是否属于本
+会话工作区，所以 A 窗口的项目不会出现在 B 窗口的轨迹里；工作区之外的写入仍然被拦，
+只是不进这条轨迹。
+
 详见 [`dsh-plugin/README.md`](dsh-plugin/README.md)。
 
 ```bash
 node dsh-plugin/test-gate.mjs     # 23 项决策层断言
 node dsh-plugin/test-e2e.mjs      # 7 项注册表层断言（真 Context + 真 ToolRuntime）
 node dsh-plugin/test-loader.mjs   # 7 项加载器层断言（真 loader + file:// 说明符）
-node dsh-plugin/test-state.mjs    # 72 项状态机与 RPC 断言（卡片颜色与开关的真实来源）
-node dsh-plugin/test-client.mjs   # 24 项卡片交互断言（含「点开后再点内部不会关」回归）
+node dsh-plugin/test-state.mjs    # 128 项状态机与 RPC 断言（卡片颜色与开关的真实来源）
+node dsh-plugin/test-client.mjs   # 56 项卡片交互断言（含「点开后再点内部不会关」回归）
 ```
 
 ### Claude Code / WorkBuddy
@@ -352,11 +392,12 @@ dsh-plugin/                   DeepSeek-Harness 原生 bundle（写入闸门 + �
   test-gate.mjs               决策层断言（23 项）
   test-e2e.mjs                注册表层断言（7 项）
   test-loader.mjs             加载器层断言（7 项）
-  test-state.mjs              状态机与 RPC 断言（72 项）
-  test-client.mjs             卡片交互断言（24 项，自建极简渲染器）
+  test-state.mjs              状态机与 RPC 断言（128 项）
+  test-client.mjs             卡片交互断言（56 项，自建极简渲染器）
 hooks/settings.example.json   hook 配置片段
 docs/idea-status.md           idea.md 条目 → 状态对照表
-docs/markup-detection-check.md  HTML 标记检测回归说明（全部使用合成样本）
+docs/d1api-replica-check.md   复刻页的完整检测记录（HTML 词法层缺口的证据）
+demo/d1api-home.html          真实中转站首页的逐字复刻，HTML 检测的回归夹具
 examples/report-vulnerable.md 恶意夹具的完整报告样例
 examples/panel-*.png         控制面板截图
 tests/
@@ -383,7 +424,7 @@ tests/
 ## 自检
 
 ```bash
-python -m unittest discover -s tests      # 188 个单元用例（含 27 个安全用例）
+python -m unittest discover -s tests      # 203 个单元用例（含 27 个安全用例）
 python tests/functional_sweep.py          # 44 项端到端功能检测（每个对外入口真跑一遍）
 python tests/brutal_suite.py              # 100 个地狱式功能用例
 python tests/idea_matrix.py               # idea.md 逐条验收（83 条断言）
@@ -391,8 +432,8 @@ python tests/realworld_regression.py      # 8 个真实库 581 文件的误报�
 node dsh-plugin/test-gate.mjs             # DSH 闸门决策层（23 项）
 node dsh-plugin/test-e2e.mjs              # DSH 闸门注册表层（7 项）
 node dsh-plugin/test-loader.mjs           # DSH 闸门加载器层（7 项）
-node dsh-plugin/test-state.mjs            # 状态机与 RPC（72 项）
-node dsh-plugin/test-client.mjs           # 卡片交互（24 项）
+node dsh-plugin/test-state.mjs            # 状态机与 RPC（128 项）
+node dsh-plugin/test-client.mjs           # 卡片交互（56 项）
 ```
 
 `functional_sweep.py` 补的是单测覆盖不到的那一层：单元测试证明函数算得对，

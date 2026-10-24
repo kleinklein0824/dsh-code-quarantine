@@ -71,14 +71,17 @@ def main() -> int:
         return 0
 
     # 通知卡片：无论拦不拦，用户都该在图标上看见「这条命令被扫过、有命中」。
-    hookio.notify_panel(cfg.project_root, {
+    event = {
         "type": "pre-shell",
         "tool": str(payload.get("tool_name") or ""),
         "file": SHELL_NAME,
         "verdict": result.verdict(),
         "counts": counts,
         "findings": [f.to_dict() for f in result.sorted_findings()[:8]],
-    })
+    }
+    hookio.notify_panel(cfg.project_root, event)
+    # 包装层（DSH 插件）读的是计数，不是给人看的报告；走文件，屏幕保持干净。
+    hookio.write_report(event)
 
     if counts["CRITICAL"]:
         print(hookio.format_findings(result), file=sys.stderr)

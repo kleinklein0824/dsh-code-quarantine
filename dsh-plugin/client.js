@@ -12,9 +12,9 @@
  *   grey     disarmed
  * Clicking it opens the panel.
  *
- * The panel is not a toy popover: it mirrors the five tabs of the browser panel
+ * The panel is not a toy popover: it mirrors the six tabs of the browser panel
  * that ships with the skill (`scripts/panel/index.html`) — 扫描结果 / 规则开关 /
- * 白名单 / 豁免 / AI 复核. It does not re-implement any of them. Every call goes
+ * 白名单 / 豁免 / AI 复核 / 修复历史. It does not re-implement any of them. Every call goes
  * through the Host's `panel` RPC into `scripts/panel_bridge.py`, which drives the
  * same `Panel` object the browser panel and the CLI use. Two copies of the write
  * logic would drift, and a rule switched off in one surface would keep firing in
@@ -38,6 +38,7 @@ window.__ModuleLoader__.load({
 
     const NS = 'code-quarantine'
     const RPC = '/dsh-code-quarantine/rpc'
+    const EVENTS = '/dsh-code-quarantine/events'
 
     /**
      * Dictionaries live in the bundle rather than in `locale/*.json` because the
@@ -61,6 +62,7 @@ window.__ModuleLoader__.load({
         'panel.offline': '宿主未响应，状态未知。',
         'panel.loading': '载入中…',
         'panel.noScanner': '没找到扫描器。请把 skill 装到 ~/.dsh/skills/dsh-code-quarantine，或在插件配置里写 skillRoot。',
+        'tab.live': '实时监测',
         'tab.scan': '扫描结果',
         'tab.rules': '规则开关',
         'tab.allow': '白名单',
@@ -68,6 +70,12 @@ window.__ModuleLoader__.load({
         'tab.ai': 'AI 复核',
         'foot.switch': '写入拦截',
         'foot.threshold': '拦截级别',
+        'master.label': '总开关',
+        'master.on': '已启用',
+        'master.off': '已关闭',
+        'master.offHint': '总开关已关闭：写入拦截与会话创建时的自动扫描都停用了。手动扫描和配置修改仍然可用。',
+        'master.hint': '开启后，新建会话会自动对工作区做一次全量审计；关闭后只保留手动操作。',
+        'master.persistFailed': '总开关已切换，但设置文件写入失败，重启后会恢复之前的状态。',
         'foot.critical': '仅 CRITICAL',
         'foot.warning': 'CRITICAL + WARNING',
         'foot.reset': '清除提示',
@@ -87,6 +95,22 @@ window.__ModuleLoader__.load({
         'scan.warn': '仅 WARNING',
         'scan.info': '仅 INFO',
         'scan.none': '没有符合条件的结果。',
+        'scan.clean': '未发现问题',
+        'live.title': '实时监测',
+        'live.watching': '监控中',
+        'live.idle': '等待写入',
+        'live.off': '已停止',
+        'live.checked': '已检查',
+        'live.hits': '命中',
+        'live.files': '个文件',
+        'live.since': '开始于',
+        'live.empty': '本会话还没有写入动作。AI 每写一个文件，这里会立刻出现一条。',
+        'live.blocked': '已拦截',
+        'live.review': '有预警',
+        'live.safe': '通过',
+        'live.shell': '命令',
+        'live.target': '监测目录',
+        'live.autoHint': '会话开始即自动监测，无需手动扫描。',
         'scan.files': '个文件',
         'scan.done': '扫描完成：',
         'scan.failed': '扫描失败：',
@@ -127,6 +151,7 @@ window.__ModuleLoader__.load({
         'ai.timeout': '请求超时（秒）',
         'ai.maxCalls': '单次扫描调用上限',
         'ai.enabled': '启用 AI 复核',
+        'ai.disabled': 'AI 复核已关闭（扫描不会调用）',
         'ai.deep': '深度复核（更贵）',
         'ai.test': '测试连接',
         'ai.testing': '测试中…',
@@ -173,6 +198,7 @@ window.__ModuleLoader__.load({
         'panel.offline': 'Host is not responding; state unknown.',
         'panel.loading': 'Loading…',
         'panel.noScanner': 'No scanner found. Install the skill into ~/.dsh/skills/dsh-code-quarantine or set skillRoot in the plugin config.',
+        'tab.live': 'Live',
         'tab.scan': 'Findings',
         'tab.rules': 'Rules',
         'tab.allow': 'Allowlist',
@@ -180,6 +206,12 @@ window.__ModuleLoader__.load({
         'tab.ai': 'AI review',
         'foot.switch': 'Block writes',
         'foot.threshold': 'Block on',
+        'master.label': 'Master switch',
+        'master.on': 'On',
+        'master.off': 'Off',
+        'master.offHint': 'The master switch is off: write interception and the automatic scan on session creation are disabled. Manual scans and settings edits still work.',
+        'master.hint': 'When on, every new session automatically audits its workspace once; when off, only manual actions run.',
+        'master.persistFailed': 'The switch changed, but the settings file could not be written; it will revert on restart.',
         'foot.critical': 'CRITICAL only',
         'foot.warning': 'CRITICAL + WARNING',
         'foot.reset': 'Clear alert',
@@ -199,6 +231,22 @@ window.__ModuleLoader__.load({
         'scan.warn': 'WARNING only',
         'scan.info': 'INFO only',
         'scan.none': 'Nothing matches the filter.',
+        'scan.clean': 'No problems found',
+        'live.title': 'Live monitoring',
+        'live.watching': 'Watching',
+        'live.idle': 'Waiting for writes',
+        'live.off': 'Stopped',
+        'live.checked': 'checked',
+        'live.hits': 'hits',
+        'live.files': 'files',
+        'live.since': 'since',
+        'live.empty': 'No writes in this conversation yet. Each file the AI writes appears here immediately.',
+        'live.blocked': 'Blocked',
+        'live.review': 'Warning',
+        'live.safe': 'Passed',
+        'live.shell': 'command',
+        'live.target': 'Watching',
+        'live.autoHint': 'Monitoring starts with the conversation — no manual scan needed.',
         'scan.files': 'files',
         'scan.done': 'Scan finished: ',
         'scan.failed': 'Scan failed: ',
@@ -239,6 +287,7 @@ window.__ModuleLoader__.load({
         'ai.timeout': 'Timeout (s)',
         'ai.maxCalls': 'Max calls per scan',
         'ai.enabled': 'Enable AI review',
+        'ai.disabled': 'AI review is off (scans will not call it)',
         'ai.deep': 'Deep review (costlier)',
         'ai.test': 'Test connection',
         'ai.testing': 'Testing…',
@@ -363,7 +412,7 @@ window.__ModuleLoader__.load({
       'cursor:pointer;font-size:15px;line-height:1;padding:2px 4px;border-radius:6px}',
       '.dsh-cq-x:hover{background:var(--dsw-alias-bg-layer-2);color:var(--dsw-alias-label-primary)}',
 
-      /* Tabs mirror the browser panel's five views */
+      /* Tabs mirror the browser panel's six views */
       '.dsh-cq-tabs{display:flex;gap:2px;padding:0 10px;border-bottom:1px solid var(--dsw-alias-border-l1)}',
       '.dsh-cq-tab{border:none;background:transparent;color:var(--dsw-alias-label-secondary);cursor:pointer;',
       'padding:7px 9px;font-size:12px;font-family:inherit;border-bottom:2px solid transparent;white-space:nowrap}',
@@ -408,6 +457,7 @@ window.__ModuleLoader__.load({
       'border-radius:50%;background:var(--dsw-alias-bg-base);transition:transform .18s ease}',
       '.dsh-cq-switch[data-on="true"]::after{transform:translateX(15px)}',
       '.dsh-cq-switch:focus-visible{outline:2px solid var(--dsw-alias-brand-primary);outline-offset:2px}',
+      '.dsh-cq-switch:disabled{opacity:.45;cursor:not-allowed}',
 
       /* Verdict badge + counters */
       '.dsh-cq-verdict{display:inline-flex;align-items:center;gap:5px;padding:2px 9px;border-radius:999px;',
@@ -443,6 +493,28 @@ window.__ModuleLoader__.load({
       'color:var(--dsw-alias-label-secondary)}',
       '.dsh-cq-acts{display:flex;gap:4px;margin-top:5px;flex-wrap:wrap}',
       '.dsh-cq-empty{color:var(--dsw-alias-label-secondary);font-size:11.5px;padding:10px 0}',
+
+      /* Live tab: a status dot that only moves when monitoring is actually on,
+         then a newest-first trail. The dot is the difference between "nothing
+         has gone wrong" and "nothing is being watched" — two states that used to
+         look identical (both an empty table). */
+      '.dsh-cq-live{display:inline-flex;align-items:center;gap:5px;font-size:11.5px;',
+      'color:var(--dsw-alias-label-secondary)}',
+      '.dsh-cq-live[data-on="true"]{color:var(--dsw-alias-label-primary)}',
+      '.dsh-cq-live-dot{width:6px;height:6px;border-radius:50%;background:var(--dsw-alias-label-secondary);opacity:.5}',
+      '.dsh-cq-live[data-on="true"] .dsh-cq-live-dot{background:#2ea043;opacity:1;',
+      'box-shadow:0 0 0 2px rgba(46,160,67,.18);animation:dsh-cq-pulse 1.8s ease-in-out infinite}',
+      '@keyframes dsh-cq-pulse{0%,100%{opacity:1}50%{opacity:.35}}',
+      '.dsh-cq-target{margin-top:5px;font-size:11px;color:var(--dsw-alias-label-secondary);',
+      'font-family:ui-monospace,Consolas,monospace;white-space:nowrap;overflow:hidden;text-overflow:ellipsis}',
+      '.dsh-cq-live-list{margin-top:4px;max-height:320px;overflow:auto}',
+      '.dsh-cq-live-item{padding:6px 0;border-top:1px solid var(--dsw-alias-border-l2)}',
+      '.dsh-cq-live-item:first-child{border-top:none}',
+      '.dsh-cq-live-item[data-v="BLOCK"] .dsh-cq-sev{color:#d1242f}',
+      '.dsh-cq-live-item[data-v="REVIEW"] .dsh-cq-sev{color:#bc4c00}',
+      '.dsh-cq-live-item[data-v="SAFE"] .dsh-cq-sev{color:var(--dsw-alias-label-secondary)}',
+      '.dsh-cq-warn{color:#bc4c00}',
+      '.dsh-cq-ok{color:var(--dsw-alias-label-secondary)}',
 
       /* History tab: one block per edit, diff lines kept monospace so a
          whitespace-only fix is still visible. */
@@ -497,6 +569,9 @@ window.__ModuleLoader__.load({
      */
     function phaseOf(state) {
       if (!state) return 'idle'
+      // The master switch is global; a per-session `armed` value must not paint
+      // a green icon while the whole tool is off.
+      if (state.enabled === false) return 'disarmed'
       if (state.armed === false) return 'disarmed'
       if (state.alert === 'block') return 'block'
       if (state.alert === 'warn') return 'warn'
@@ -587,6 +662,76 @@ window.__ModuleLoader__.load({
 
     /* ------------------------------------------------------------------ tabs */
 
+    /**
+     * The live tab: what the gate has inspected in this conversation so far.
+     *
+     * The scan tab answers "what is in this project", which is a question about
+     * a moment the user asked for. This answers "is what the AI is writing right
+     * now clean", which is a question that never stops being asked — so it must
+     * never depend on a button. The Host appends an entry the moment a write is
+     * decided and bumps `liveRev`; the card re-reads on that counter.
+     */
+    function LiveTab({ t, live, state }) {
+      const data = live || {}
+      const entries = Array.isArray(data.entries) ? data.entries : []
+      const checked = Number(data.checked || 0)
+      const hits = Number(data.hits || 0)
+      const watching = Boolean(data.watching)
+      const disarmed = Boolean(state && (state.armed === false || state.enabled === false))
+      const status = disarmed ? t('live.off') : watching ? t('live.watching') : t('live.idle')
+
+      return h(
+        'div',
+        null,
+        h(
+          Row,
+          null,
+          h('span', { className: 'dsh-cq-live', 'data-on': String(watching && !disarmed) },
+            h('span', { className: 'dsh-cq-live-dot', 'aria-hidden': true }),
+            status,
+          ),
+          h(
+            'div',
+            { className: 'dsh-cq-counts' },
+            h('span', null, `${t('live.checked')} `, h('b', null, checked)),
+            h('span', { className: hits ? 'dsh-cq-warn' : 'dsh-cq-ok' }, `${t('live.hits')} `, h('b', null, hits)),
+            data.since ? h('span', null, `${t('live.since')} ${timeLabel(data.since)}`) : null,
+          ),
+        ),
+        data.target
+          ? h('div', { className: 'dsh-cq-target', title: data.target }, `${t('live.target')} · ${data.target}`)
+          : null,
+        h(Hint, null, t('live.autoHint')),
+        !entries.length
+          ? h('div', { className: 'dsh-cq-empty' }, t('live.empty'))
+          : h(
+              'div',
+              { className: 'dsh-cq-live-list' },
+              // Newest first: while the agent is working, the line that just
+              // appeared is the one being looked at.
+              entries
+                .slice()
+                .reverse()
+                .map((entry, index) =>
+                  h(
+                    'div',
+                    { className: 'dsh-cq-live-item', key: `${entry.at}:${entry.file}:${index}`, 'data-v': entry.verdict || 'SAFE' },
+                    h(
+                      'div',
+                      { className: 'dsh-cq-find-top' },
+                      h('span', { className: 'dsh-cq-sev', 'data-s': entry.severity || 'INFO' },
+                        entry.verdict === 'BLOCK' ? t('live.blocked') : entry.verdict === 'REVIEW' ? t('live.review') : t('live.safe')),
+                      h('span', { className: 'dsh-cq-rule' }, entry.kind === 'shell' ? t('live.shell') : (entry.rule || '—')),
+                      h('span', { className: 'dsh-cq-where' }, entry.file || ''),
+                      h('span', { className: 'dsh-cq-meta' }, timeLabel(entry.at)),
+                    ),
+                    entry.message ? h('div', { className: 'dsh-cq-msg' }, entry.message) : null,
+                  ),
+                ),
+            ),
+      )
+    }
+
     function ScanTab({ t, panel, onScan, scanning, onExempt, onPrompt, onReveal, onEditLine }) {
       const [sev, setSev] = React.useState('ALL')
       const [text, setText] = React.useState('')
@@ -600,6 +745,11 @@ window.__ModuleLoader__.load({
       const summary = (data && data.summary) || {}
       const counts = summary.severity || {}
       const findings = (data && data.findings) || []
+      // `Panel.scan` can refuse to use a project-configured AI endpoint (a cloned
+      // repository must not exfiltrate its source through the AI layer). The
+      // warning used to travel only on the response and die there, so the user who
+      // ticked "AI review" saw an ordinary SAFE result and believed it was reviewed.
+      const notes = (data && (data.warnings || data.notes)) || []
       const rows = findings.filter((f) => {
         if (sev !== 'ALL' && f.severity !== sev) return false
         if (!text) return true
@@ -632,8 +782,26 @@ window.__ModuleLoader__.load({
           h(
             'label',
             { className: 'dsh-cq-check' },
-            h('input', { type: 'checkbox', checked: llm, onChange: (e) => setLlm(e.target.checked) }),
+            h('input', {
+              type: 'checkbox',
+              checked: llm,
+              onChange: (e) => {
+                setLlm(e.target.checked)
+                if (!e.target.checked) setDeep(false)
+              },
+            }),
             t('scan.useLlm'),
+          ),
+          h(
+            'label',
+            { className: 'dsh-cq-check' },
+            h('input', {
+              type: 'checkbox',
+              checked: llm && deep,
+              disabled: !llm,
+              onChange: (e) => setDeep(e.target.checked),
+            }),
+            t('scan.deep'),
           ),
           h('div', { className: 'dsh-cq-spacer' }),
           h(Button, { variant: 'primary', disabled: scanning, onClick: () => onScan({ mode, include_tests: tests, use_llm: llm, llm_deep: deep }) },
@@ -656,6 +824,7 @@ window.__ModuleLoader__.load({
             h('span', null, `${summary.scanned_files || 0} ${t('scan.files')}`),
           ),
         ),
+        notes.length ? h('div', { className: 'dsh-cq-hint' }, notes.join('；')) : null,
         h(
           'div',
           { className: 'dsh-cq-chips' },
@@ -689,7 +858,14 @@ window.__ModuleLoader__.load({
         !data
           ? h('div', { className: 'dsh-cq-empty' }, t('scan.empty'))
           : !rows.length
-            ? h('div', { className: 'dsh-cq-empty' }, t('scan.none'))
+            ? // "Nothing matches the filter" is a lie when the scan itself found
+              // nothing: a clean project has no rows *and* no filter to blame,
+              // and the user's actual question is "so is it fine?".
+              h(
+                'div',
+                { className: 'dsh-cq-empty' },
+                findings.length ? t('scan.none') : t('scan.clean'),
+              )
             : rows.map((f, index) =>
                 h(
                   'div',
@@ -798,8 +974,12 @@ window.__ModuleLoader__.load({
             {
               variant: 'primary',
               onClick: () => {
-                onSave({ rules: edits })
-                setEdits({})
+                // Clear the local overlay only once the write landed. Clearing it
+                // optimistically threw away every unsaved rule change when the
+                // save failed, and the user had no way to tell which ones survived.
+                onSave({ rules: edits }).then((ok) => {
+                  if (ok) setEdits({})
+                })
               },
             },
             t('rules.save'),
@@ -862,11 +1042,13 @@ window.__ModuleLoader__.load({
             {
               variant: 'primary',
               onClick: () => {
-                onSave({ allow: collect() })
-                setDomains(null)
-                setBlocked(null)
-                setRegistries(null)
-                setCdn(null)
+                onSave({ allow: collect() }).then((ok) => {
+                  if (!ok) return
+                  setDomains(null)
+                  setBlocked(null)
+                  setRegistries(null)
+                  setCdn(null)
+                })
               },
             },
             t('allow.save'),
@@ -967,8 +1149,9 @@ window.__ModuleLoader__.load({
             {
               variant: 'primary',
               onClick: () => {
-                onSave({ ignore: value.split('\n').map((s) => s.trim()).filter(Boolean) })
-                setText(null)
+                onSave({ ignore: value.split('\n').map((s) => s.trim()).filter(Boolean) }).then((ok) => {
+                  if (ok) setText(null)
+                })
               },
             },
             t('ignore.save'),
@@ -997,7 +1180,13 @@ window.__ModuleLoader__.load({
         setForm({ ...base, [key]: e.target.type === 'checkbox' ? e.target.checked : e.target.value })
 
       const bits = []
-      bits.push(llm.ready ? `${t('ai.ready')}：${llm.model || ''}` : t('ai.notConfigured'))
+      bits.push(
+        llm.enabled === false
+          ? t('ai.disabled')
+          : llm.ready
+            ? `${t('ai.ready')}：${llm.model || ''}`
+            : t('ai.notConfigured'),
+      )
       if (llm.has_key) bits.push(`${t('ai.keyReady')} ${llm.key_hint || ''}`)
       if (llm.source && llm.source !== 'none') bits.push(`${t('ai.source')} ${llm.source}`)
 
@@ -1092,7 +1281,17 @@ window.__ModuleLoader__.load({
             },
             testing ? t('ai.testing') : t('ai.test'),
           ),
-          h(Button, { variant: 'primary', onClick: () => onSave({ llm: base }) }, t('ai.save')),
+          h(Button, {
+            variant: 'primary',
+            onClick: () => {
+              // Drop the local copy only after the write lands. Keeping it forever
+              // made the form ignore later external edits: it looked saved and was
+              // pinned to the values from the moment of the click.
+              onSave({ llm: base }).then((ok) => {
+                if (ok) setForm(null)
+              })
+            },
+          }, t('ai.save')),
         ),
       )
     }
@@ -1104,7 +1303,7 @@ window.__ModuleLoader__.load({
       const [open, setOpen] = React.useState(false)
       const [state, setState] = React.useState(null)
       const [offline, setOffline] = React.useState(false)
-      const [tab, setTab] = React.useState('scan')
+      const [tab, setTab] = React.useState('live')
       const [panel, setPanel] = React.useState(null)
       const [loading, setLoading] = React.useState(false)
       const [scanning, setScanning] = React.useState(false)
@@ -1113,6 +1312,7 @@ window.__ModuleLoader__.load({
       const [editing, setEditing] = React.useState(null)
       const [history, setHistory] = React.useState(null)
       const [historyLoading, setHistoryLoading] = React.useState(false)
+      const [live, setLive] = React.useState(null)
       const rootRef = React.useRef(null)
       // The card is a sibling of the button inside a Fragment, not a child — it has
       // to be positioned `fixed` against the viewport, so it cannot be nested in the
@@ -1153,13 +1353,49 @@ window.__ModuleLoader__.load({
         })
       }, [target, sessionId])
 
-      // Poll while the panel is open, and once on mount so the icon is truthful
-      // about a block that happened before the user ever clicked it.
+      // The live feed. `EventSource` cannot send headers or a body, so the
+      // session travels as a query parameter; the Host keys its per-conversation
+      // state off exactly that.
+      //
+      // Why a stream instead of the old 1.5s/6s poll: a poll is a bet that the
+      // answer will not change between ticks. A block that lands just after a
+      // tick is invisible for up to a second and a half, and the closed-state
+      // poll ran forever asking a question whose answer had not moved. The Host
+      // already fans every state change out through `publish()`; this subscribes
+      // to that instead of re-asking.
+      React.useEffect(() => {
+        const url = `${EVENTS}?session=${encodeURIComponent(sessionId)}`
+        const source = new window.EventSource(url)
+        source.onmessage = (event) => {
+          try {
+            const payload = JSON.parse(event.data)
+            // The Host already routes each frame to the matching feed, so this
+            // guard should never fire. It stays because the failure it prevents is
+            // silent and expensive: one window's BLOCK painting another window's
+            // icon red sends the user hunting for a problem in the wrong project.
+            // Cheap to check, impossible to debug from the outside.
+            if (payload && payload.state) {
+              const from = payload.state.sessionId
+              if (typeof from === 'string' && from && sessionId && from !== sessionId) return
+              setState(payload.state)
+              setOffline(false)
+            }
+          } catch {
+            /* a malformed frame is not worth tearing the feed down for */
+          }
+        }
+        // `EventSource` retries by itself; all this has to do is say so, because a
+        // silent retry loop and a working feed look identical from the outside.
+        source.onerror = () => setOffline(true)
+        return () => source.close()
+      }, [sessionId])
+
+      // One `state` read on mount, before the first frame arrives: the icon must be
+      // truthful about a block that happened before the user ever clicked it, and
+      // the stream only reports *changes* from here on.
       React.useEffect(() => {
         refresh()
-        const timer = window.setInterval(refresh, open ? 1500 : 6000)
-        return () => window.clearInterval(timer)
-      }, [open, refresh])
+      }, [refresh])
 
       const flash = (message) => {
         setToast(message)
@@ -1179,8 +1415,18 @@ window.__ModuleLoader__.load({
         setLoading(true)
         callPanel('state', {}, target, sessionId).then((result) => {
           setLoading(false)
-          if (result && result.ok) setPanel(result.data)
-          else flash((result && result.error) || tRef.current('panel.offline'))
+          if (result && result.ok) {
+            // The `state` bridge call returns rules/allow/ignore/AI, not the last
+            // scan table. Replacing the whole object dropped `scan`, so a rule
+            // save or a background config refresh made a populated scan tab fall
+            // back to "no scan yet". Keep the findings we already have.
+            setPanel((current) => ({
+              ...(result.data || {}),
+              ...(current && current.scan ? { scan: current.scan } : {}),
+            }))
+          } else {
+            flash((result && result.error) || tRef.current('panel.offline'))
+          }
         })
       }, [target, sessionId])
 
@@ -1216,17 +1462,67 @@ window.__ModuleLoader__.load({
         if (open && !panel) loadPanel()
       }, [open, panel, loadPanel])
 
-      // The history is read when its tab is opened, and refreshed while it stays
-      // open: the trail is append-only, but each entry's *status* is a claim about
-      // the file right now, so it goes stale the moment somebody edits the code by
-      // hand or reverts via git. A 4s cadence only while the tab is visible keeps
-      // the badges honest without polling a JSONL in the background.
+      // The rules and allowlists live in files that a person can edit by hand, and
+      // the browser panel can save them too. Without this the card kept showing the
+      // rules it read the first time it was opened, so a rule someone disabled in
+      // the file still appeared enabled here — and "looks enabled" is how you end up
+      // trusting a gate that is not running.
+      //
+      // Reloading only swaps `panel`; every tab keeps its own unsaved input in local
+      // state, so an in-progress edit survives the refresh instead of being erased
+      // mid-typing.
+      const configRev = state && typeof state.configRev === 'number' ? state.configRev : 0
+      React.useEffect(() => {
+        if (!open || configRev === 0) return undefined
+        loadPanel()
+        return undefined
+      }, [open, configRev, loadPanel])
+
+      // The history is read when its tab opens, and re-read whenever the Host says
+      // the trail grew (`historyRev` on the live feed). Each entry's *status* is a
+      // claim about the file right now, so it also goes stale when somebody edits
+      // the code by hand or reverts via git — that case is covered by the manual
+      // reload button rather than by a timer, because a 4s poll burned IO on a file
+      // that almost never changes and still left up to four seconds of stale badges.
+      const historyRev = state && typeof state.historyRev === 'number' ? state.historyRev : 0
       React.useEffect(() => {
         if (!open || tab !== 'history') return undefined
         loadHistory()
-        const timer = setInterval(loadHistory, 4000)
-        return () => clearInterval(timer)
-      }, [open, tab, loadHistory])
+        return undefined
+      }, [open, tab, loadHistory, historyRev])
+
+      // The session-created audit ran Host-side; its findings sit in the Host's
+      // cache until the card asks. Fetch once per revision (and on open, so a
+      // card that was closed when the audit finished still shows the table).
+      // This is deliberately not sent on the state frame: findings can be large,
+      // and that frame is broadcast on every icon colour change.
+      const scanRev = state && typeof state.scanRev === 'number' ? state.scanRev : 0
+      React.useEffect(() => {
+        if (!open || scanRev === 0) return undefined
+        callHost('scan-result', {}, target, sessionId).then((result) => {
+          if (result && result.ok && result.data) {
+            setPanel((current) => ({ ...(current || {}), scan: result.data }))
+          }
+        })
+        return undefined
+      }, [open, scanRev, target, sessionId])
+
+      // The live trail, fetched once per `liveRev` (and on open). Same shape as
+      // `scan-result`: the state frame carries the counter, this read carries the
+      // entries. It is fetched even when the card is closed — the badge counts
+      // keep moving and the list must be there on the next open — but the fetch
+      // is cheap and bounded (LIVE_LOG_LIMIT entries).
+      const liveRev = state && typeof state.liveRev === 'number' ? state.liveRev : 0
+      React.useEffect(() => {
+        callHost('live-log', {}, target, sessionId).then((result) => {
+          // Only the entries are taken from this read. The gate state itself is
+          // the feed's job (`state` frame / `state` call) — accepting the copy
+          // that rides along here would let a slow live-log response overwrite a
+          // newer phase, e.g. repaint a just-disarmed icon as blocked.
+          if (result && result.ok && result.data) setLive(result.data)
+        })
+        return undefined
+      }, [liveRev, target, sessionId])
 
       // Outside click and Escape close the panel; both listeners live only while
       // it is open so the closed button costs nothing.
@@ -1255,7 +1551,20 @@ window.__ModuleLoader__.load({
       const phase = phaseOf(state)
       const label = t(`phase.${phase}`)
 
+      const toggleMaster = () => {
+        const next = !(state ? state.enabled !== false : true)
+        setState((current) => ({ ...(current || {}), enabled: next }))
+        callHost('master', { enabled: next }, target, sessionId).then((result) => {
+          if (result && result.ok && result.state) setState(result.state)
+          if (result && result.persisted === false) flash(t('master.persistFailed'))
+        })
+      }
+
       const toggle = () => {
+        // The per-session switch is one step below the master switch: with the
+        // master off the button is disabled, and a stray click must not silently
+        // re-arm interception behind a grey icon.
+        if (state && state.enabled === false) return
         const next = !(state ? state.armed !== false : true)
         setState((current) => ({ ...(current || {}), armed: next }))
         callHost('arm', { armed: next }, target, sessionId).then((result) => {
@@ -1280,7 +1589,9 @@ window.__ModuleLoader__.load({
             if (result.state) setState(result.state)
             const verdict = (result.data && result.data.verdict) || '?'
             const files = (result.data && result.data.summary && result.data.summary.scanned_files) || 0
-            flash(`${t('scan.done')}${verdict}（${files} ${t('scan.files')}）`)
+            const warnings = (result.data && result.data.warnings) || []
+            const suffix = warnings.length ? ` · ${warnings.join('；')}` : ''
+            flash(`${t('scan.done')}${verdict}（${files} ${t('scan.files')}）${suffix}`)
           } else {
             flash(`${t('scan.failed')}${(result && result.error) || ''}`)
           }
@@ -1288,17 +1599,17 @@ window.__ModuleLoader__.load({
       }
 
       /** Every write goes through one helper so the reload-after-save is uniform. */
-      const save = (patch, doneLabel) => {
+      const save = (patch, doneLabel) =>
         callPanel('save', patch, target, sessionId).then((result) => {
           if (result && result.ok) {
             const warnings = (result.data && result.data.warnings) || []
             flash(warnings.length ? warnings.join('；') : doneLabel)
             loadPanel()
-          } else {
-            flash(`${t('save.failed')}${(result && result.error) || ''}`)
+            return true
           }
+          flash(`${t('save.failed')}${(result && result.error) || ''}`)
+          return false
         })
-      }
 
       const exempt = (finding) => {
         callPanel('ignore', { rule_id: finding.rule_id, path: finding.file }, target, sessionId).then((result) => {
@@ -1384,6 +1695,10 @@ window.__ModuleLoader__.load({
       }
 
       const tabs = [
+        // Live first: it is the answer to the question the user asks while the
+        // agent is working, and it needs no button. The audit table stays one
+        // tab over for the "what is in this project" question.
+        ['live', t('tab.live')],
         ['scan', t('tab.scan')],
         ['rules', t('tab.rules')],
         ['allow', t('tab.allow')],
@@ -1444,7 +1759,9 @@ window.__ModuleLoader__.load({
           ),
         )
       } else if (loading && !panel) body = h('div', { className: 'dsh-cq-empty' }, t('panel.loading'))
-      else if (tab === 'scan') {
+      else if (tab === 'live') {
+        body = h(LiveTab, { t, live, state })
+      } else if (tab === 'scan') {
         body = h(ScanTab, { t, panel, onScan: runScan, scanning, onExempt: exempt, onPrompt: askAi, onReveal: reveal, onEditLine: editLine })
       } else if (tab === 'rules') {
         body = h(RulesTab, { t, panel, onSave: (patch) => save(patch, t('rules.save')) })
@@ -1519,10 +1836,24 @@ window.__ModuleLoader__.load({
                 ),
               ),
             ),
-            h('div', { className: 'dsh-cq-body' }, toast ? h('div', { className: 'dsh-cq-hint' }, toast) : null, body),
+            h('div', { className: 'dsh-cq-body' }, toast ? h('div', { className: 'dsh-cq-hint' }, toast) : null,
+              state && state.enabled === false
+                ? h('div', { className: 'dsh-cq-hint' }, t('master.offHint'))
+                : null,
+              body),
             h(
               'div',
               { className: 'dsh-cq-foot' },
+              h('span', { className: 'dsh-cq-label', title: t('master.hint') }, t('master.label')),
+              h('button', {
+                type: 'button',
+                className: 'dsh-cq-switch',
+                'data-on': String(state ? state.enabled !== false : true),
+                'aria-pressed': String(state ? state.enabled !== false : true),
+                'aria-label': t('master.label'),
+                title: `${t('master.hint')}${state && state.settingsPath ? `\n${state.settingsPath}` : ''}`,
+                onClick: toggleMaster,
+              }),
               h('span', { className: 'dsh-cq-label' }, t('foot.switch')),
               h('button', {
                 type: 'button',
@@ -1530,6 +1861,7 @@ window.__ModuleLoader__.load({
                 'data-on': String(state ? state.armed !== false : true),
                 'aria-pressed': String(state ? state.armed !== false : true),
                 'aria-label': t('foot.switch'),
+                disabled: state ? state.enabled === false : false,
                 onClick: toggle,
               }),
               h(

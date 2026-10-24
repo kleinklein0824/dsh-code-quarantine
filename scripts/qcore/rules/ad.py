@@ -25,7 +25,7 @@ from urllib.parse import urlsplit
 from .. import emit, pyutil
 from ..model import Finding
 
-URL_RE = re.compile(r"(?:https?|wss?)://[A-Za-z0-9._~:/?#\[\]@!$&'()*+,;=%\-]+", re.I)
+URL_RE = re.compile(r"(?:https?|wss?)://[A-Za-z0-9._~:/?#\[\]@!$&()*+,;=%\-]+", re.I)
 EMAIL_RE = re.compile(r"[A-Za-z0-9._%+\-]+@[A-Za-z0-9.\-]+\.[A-Za-z]{2,}")
 
 # 裸域名（不带 scheme）。中文推广话术几乎从不写 `https://`：

@@ -313,9 +313,26 @@ def _apply_llm_review(root: str, opts: ScanOptions, sources, findings, notes, bl
              "added": 0, "cached": 0, "errors": []}
     if not getattr(cfg, "ready", False):
         stats["enabled"] = False
+        # Say *why* the layer was skipped. "缺少 base_url / model / api_key" was
+        # printed even when all three were present and the user had merely turned
+        # the layer off, or when the endpoint failed validation — both sent the
+        # user looking for a missing field that was not missing.
+        if not getattr(cfg, "enabled", True):
+            reason = "已在配置中关闭（llm.enabled = false）"
+        elif getattr(cfg, "error", ""):
+            reason = "端点无效：%s" % cfg.error
+        else:
+            missing = [
+                name for name, value in (
+                    ("base_url", getattr(cfg, "base_url", "")),
+                    ("model", getattr(cfg, "model", "")),
+                    ("api_key", getattr(cfg, "api_key", "")),
+                ) if not value
+            ]
+            reason = ("缺少 %s" % " / ".join(missing)) if missing else "配置不完整"
         notes.append(
-            "AI 复核未启用：缺少 base_url / model / api_key（检测到的对话模型：%s）"
-            % (getattr(cfg, "host_model", "") or "未知")
+            "AI 复核未启用：%s（检测到的对话模型：%s）"
+            % (reason, getattr(cfg, "host_model", "") or "未知")
         )
         return stats
 

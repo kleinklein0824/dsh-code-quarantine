@@ -106,15 +106,24 @@ class FakeDocument extends FakeNode {
   }
 }
 
+/**
+ * Stand-in for the browser's `EventSource`.
+ *
+ * The card subscribes to the Host's live feed instead of polling, so the tests
+ * have to be able to push a frame the way the server would. Keeping the class
+ * here (rather than a stub that swallows everything) also lets a test assert
+ * that a frame for one conversation repaints one card and not another.
+ */
 function installGlobals() {
   const document = new FakeDocument()
   const timers = []
+  const sources = []
   globalThis.document = document
   globalThis.window = {
     innerWidth: 1400,
     innerHeight: 900,
     setInterval: (fn) => {
-      const handle = { fn }
+      const handle = { fn, repeat: true }
       timers.push(handle)
       return handle
     },
@@ -123,9 +132,32 @@ function installGlobals() {
       if (index >= 0) timers.splice(index, 1)
     },
     setTimeout: (fn) => {
-      const handle = { fn }
+      const handle = { fn, repeat: false }
       timers.push(handle)
       return handle
+    },
+    EventSource: class FakeEventSource {
+      constructor(url) {
+        this.url = url
+        this.onmessage = null
+        this.onerror = null
+        this.closed = false
+        sources.push(this)
+      }
+
+      /** Deliver one `data:` frame, exactly as the Host's stream would. */
+      emit(payload) {
+        if (this.closed || typeof this.onmessage !== 'function') return
+        this.onmessage({ data: JSON.stringify(payload) })
+      }
+
+      fail() {
+        if (!this.closed && typeof this.onerror === 'function') this.onerror({})
+      }
+
+      close() {
+        this.closed = true
+      }
     },
   }
   globalThis.setTimeout = globalThis.window.setTimeout
@@ -137,7 +169,7 @@ function installGlobals() {
     configurable: true,
     writable: true,
   })
-  return { document, timers }
+  return { document, timers, sources }
 }
 
 /* --------------------------------------------------------------- fake react */
@@ -275,6 +307,22 @@ function createReact() {
     if (element.props.ref) element.props.ref.current = node
     if (element.props.className) node.attributes.set('class', element.props.className)
     if (element.props['data-phase']) node.attributes.set('data-phase', element.props['data-phase'])
+    // Keep the attributes the card uses to explain itself: `data-on` says whether
+    // a switch is on, `aria-label` distinguishes the master switch from the
+    // per-session one, and `disabled` is what a turned-off master switch applies
+    // to the switch below it.
+    for (const [key, value] of Object.entries(element.props)) {
+      if (key === 'ref' || typeof value === 'function' || value === undefined || value === null) continue
+      if (key === 'disabled') {
+        // React omits `disabled` entirely when it is false; mirror that so a test
+        // can tell "no attribute" from `disabled="false"`.
+        if (value === true) node.attributes.set(key, 'true')
+        continue
+      }
+      if (key.startsWith('data-') || key.startsWith('aria-') || key === 'title') {
+        node.attributes.set(key, value)
+      }
+    }
     // Wire event props so `dispatch('click')` reaches the component's handlers.
     // Without this the whole test is theatre: every dispatch is a no-op and every
     // assertion about open/closed state passes for the wrong reason.
@@ -303,7 +351,44 @@ function makeBridge() {
     if (method === 'state') {
       return Promise.resolve({
         ok: true,
-        state: { armed: true, phase: 'clean', alert: '', blockOn: 'critical', critical: 0, warning: 0, info: 0, files: 0 },
+        state: { enabled: true, armed: true, phase: 'clean', alert: '', blockOn: 'critical', critical: 0, warning: 0, info: 0, files: 0 },
+      })
+    }
+    if (method === 'master') {
+      return Promise.resolve({
+        ok: true,
+        state: {
+          enabled: args?.enabled !== false,
+          armed: true,
+          phase: args?.enabled !== false ? 'idle' : 'disarmed',
+          alert: '',
+          blockOn: 'critical',
+          critical: 0,
+          warning: 0,
+          info: 0,
+          files: 0,
+        },
+      })
+    }
+    if (method === 'live-log') {
+      // What the gate saw while the conversation ran. It is fetched on open and
+      // on every `liveRev`, so the card never has to ask "did anything happen?"
+      // on a timer.
+      return Promise.resolve({
+        ok: true,
+        data: {
+          entries: [
+            { at: Date.UTC(2026, 9, 24, 2, 0, 0), file: 'src/a.py', kind: 'write', verdict: 'SAFE', severity: 'INFO', critical: 0, warning: 0, info: 0, rule: '', message: '', findings: [] },
+            { at: Date.UTC(2026, 9, 24, 2, 1, 0), file: 'src/b.py', kind: 'write', verdict: 'BLOCK', severity: 'CRITICAL', critical: 1, warning: 0, info: 0, rule: 'SC101', message: '远程下载后管道执行', findings: [] },
+          ],
+          total: 2,
+          checked: 2,
+          hits: 1,
+          since: Date.UTC(2026, 9, 24, 2, 0, 0),
+          watching: true,
+          target: 'C:/work/demo',
+        },
+        state: { enabled: true, armed: true, phase: 'block', alert: 'block', blockOn: 'critical', critical: 1, warning: 0, info: 0, files: 0, liveRev: 1 },
       })
     }
     if (method === 'panel') {
@@ -312,7 +397,7 @@ function makeBridge() {
         return Promise.resolve({
           ok: true,
           data: {
-            version: '1.1.0',
+            version: '1.2.0',
             target,
             rules: [
               { id: 'AD001', title: '推广话术', category: 'ad_injection', severity: 'WARNING', default_severity: 'WARNING', enabled: true, default_enabled: true, message: 'm', suggestion: 's' },
@@ -323,6 +408,20 @@ function makeBridge() {
             files: { config: '.dsh-quarantine.yml', config_exists: false, ignore: '.dsh-quarantine-ignore', ignore_exists: true },
             warnings: [],
           },
+        })
+      }
+      if (op === 'scan') {
+        // A project with nothing wrong: the verdict is SAFE, the finding list is
+        // empty, and the panel still has to say something true about that.
+        return Promise.resolve({
+          ok: true,
+          data: {
+            verdict: 'SAFE',
+            findings: [],
+            warnings: [],
+            summary: { scanned_files: 42, severity: { CRITICAL: 0, WARNING: 0, INFO: 0 } },
+          },
+          state: { armed: true, phase: 'clean', alert: '' },
         })
       }
       if (op === 'history') {
@@ -603,6 +702,191 @@ if (historyTab) {
   record('a reverted entry is labelled instead of reading as current', text.includes('已被撤回'), 'reverted badge missing — a stale record would look like truth')
   record('a current entry carries no warning badge', !text.includes('文件已再次改动'), 'stale badge shown for an entry that is still current')
 }
+
+/* ---- 7a. live monitoring is the default view, with no button pressed ---- */
+//
+// The complaint this tab exists for: "it still needs me to click 开始扫描". So the
+// assertions are about what is on screen *before* any click — the card opens on
+// the live tab, the Host was asked for the trail, and the trail shows what the
+// gate actually decided. A button would make all of this true only after a click,
+// which is exactly the failure mode being fixed.
+const liveTab = findAll(slot.lastTree, 'dsh-cq-tab').find((node) => allText(node).join('') === '实时监测') || null
+record('live tab is offered in the card', Boolean(liveTab), `tabs=${findAll(slot.lastTree, 'dsh-cq-tab').map((n) => allText(n).join('')).join('/')}`)
+record(
+  'the card asks the host for the live trail without being clicked',
+  bridge.calls.some((call) => call.method === 'live-log'),
+  'client never asked for live-log — the tab would have to guess',
+)
+record(
+  'the live trail is scoped to this conversation',
+  bridge.calls.filter((call) => call.method === 'live-log').every((call) => call.sessionId === 'session-1'),
+  JSON.stringify(bridge.calls.filter((call) => call.method === 'live-log').map((call) => call.sessionId)),
+)
+
+liveTab?.dispatch('click')
+await tick()
+const liveText = allText(slot.lastTree).join(' | ')
+record('live tab reports that monitoring is running', liveText.includes('监控中'), 'no 监控中 status — the user cannot tell watching from stopped')
+record('live tab shows how many writes were inspected', liveText.includes('已检查') && liveText.includes('2'), 'inspected counter missing')
+record('live tab shows the hit counter', liveText.includes('命中'), 'hit counter missing')
+record(
+  'live tab names the workspace being watched',
+  liveText.includes('C:/work/demo'),
+  'workspace path missing — "watching what?" has no answer',
+)
+record(
+  'a blocked write appears in the trail with its rule',
+  liveText.includes('已拦截') && liveText.includes('SC101'),
+  'the blocked entry is not on screen',
+)
+record(
+  'a passing write is listed too, so silence is not mistaken for success',
+  liveText.includes('通过') && liveText.includes('src/a.py'),
+  'the SAFE entry is missing',
+)
+record(
+  'the trail is newest first',
+  liveText.indexOf('src/b.py') >= 0 && liveText.indexOf('src/b.py') < liveText.indexOf('src/a.py'),
+  'the newest entry is not at the top',
+)
+
+/* ---- 7b. a clean project must say so, not blame a filter ---- */
+//
+// The user's question after a scan of a healthy repository is "so is it fine?".
+// The table used to answer "没有符合条件的结果" whenever it had no rows — which
+// describes a filter that hid results, and reads as if something was found but
+// not shown. A SAFE scan with zero findings has to say 未发现问题.
+const scanTab = findAll(slot.lastTree, 'dsh-cq-tab').find((node) => allText(node).join('') === '扫描结果') || null
+record('scan tab is offered in the card', Boolean(scanTab), `tabs=${findAll(slot.lastTree, 'dsh-cq-tab').map((n) => allText(n).join('')).join('/')}`)
+if (scanTab) {
+  scanTab.dispatch('click')
+  await tick()
+  const runButton = findAll(slot.lastTree, 'dsh-cq-btn2').find((node) => allText(node).join('') === '开始扫描') || null
+  record('scan tab offers a run button', Boolean(runButton), 'no 开始扫描 button in the scan tab')
+  if (runButton) {
+    runButton.dispatch('click')
+    for (let round = 0; round < 4; round += 1) await tick()
+    const scanText = allText(slot.lastTree).join(' | ')
+    record(
+      'a clean scan reports no problems instead of an empty filter',
+      scanText.includes('未发现问题') && !scanText.includes('没有符合条件的结果'),
+      `empty state read: ${scanText.includes('没有符合条件的结果') ? '没有符合条件的结果' : scanText.includes('未发现问题') ? '未发现问题' : '(missing)'}`,
+    )
+    record('a clean scan still shows the SAFE verdict and the file count', scanText.includes('SAFE') && scanText.includes('42'), 'verdict or file count missing from a clean result')
+  }
+}
+
+/* ---- 8. the master switch ---- */
+// The per-session switch answers "may this window block writes?". The master
+// switch answers "do I want this tool at all?", is global, and is the one that
+// governs the automatic session-created audit. It has to be reachable from the
+// card, not only from a profile patch file.
+const phaseOf = () => findButton(slot.lastTree)?.attributes?.get('data-phase')
+const findSwitch = (label) => findAll(slot.lastTree, 'dsh-cq-switch').find((node) => node.getAttribute('aria-label') === label) || null
+const masterSwitch = findSwitch('总开关')
+record('master switch is rendered in the footer', Boolean(masterSwitch), 'no switch labelled 总开关')
+record('master switch starts on', masterSwitch?.getAttribute('data-on') === 'true', String(masterSwitch?.getAttribute('data-on')))
+
+const armCallsBefore = bridge.calls.filter((call) => call.method === 'arm').length
+masterSwitch?.dispatch('click')
+await tick()
+await tick()
+record(
+  'master switch calls the host instead of only repainting locally',
+  bridge.calls.some((call) => call.method === 'master' && call.args?.enabled === false),
+  JSON.stringify(bridge.calls.filter((call) => call.method === 'master')),
+)
+record('turning the master off paints the icon disarmed', phaseOf() === 'disarmed', String(phaseOf()))
+const sessionSwitch = findSwitch('写入拦截')
+record(
+  'turning the master off disables the per-session switch',
+  sessionSwitch?.getAttribute('disabled') === 'true',
+  String(sessionSwitch?.getAttribute('disabled')),
+)
+sessionSwitch?.dispatch('click')
+await tick()
+record(
+  'a click on the disabled per-session switch does not silently re-arm interception',
+  bridge.calls.filter((call) => call.method === 'arm').length === armCallsBefore,
+  'the card sent an arm call while the master was off',
+)
+
+/* ---- 7. the card subscribes instead of polling ---- */
+//
+// The icon used to poll every 1.5s (6s when closed). That is not "live": a block
+// landing just after a tick stayed invisible for up to a second and a half, and
+// the closed state kept a timer alive forever. The Host now pushes, so these
+// checks push a frame the way the server would and look at the icon.
+const feeds = globals.sources
+record('the card subscribes to the host feed', feeds.length === 1, `${feeds.length} EventSource(s) opened`)
+record(
+  'the feed is scoped to this conversation',
+  (feeds[0]?.url || '').includes('session=session-1'),
+  String(feeds[0]?.url),
+)
+const timersBeforeFeed = globals.timers.length
+record(
+  'the feed carries no polling timer',
+  globals.timers.length === timersBeforeFeed && !globals.timers.some((handle) => handle.repeat),
+  `${globals.timers.length} timer(s) still scheduled`,
+)
+
+feeds[0].emit({ seq: 1, state: { sessionId: 'session-1', armed: true, phase: 'block', alert: 'block', critical: 1, warning: 0, info: 0, verdict: 'BLOCK' } })
+await tick()
+record('a pushed block repaints the icon without a request', phaseOf() === 'block', String(phaseOf()))
+
+feeds[0].emit({ seq: 2, state: { sessionId: 'session-1', armed: false, phase: 'disarmed', alert: 'block' } })
+await tick()
+record('a pushed switch flip is reflected immediately', phaseOf() === 'disarmed', String(phaseOf()))
+
+feeds[0].fail()
+await tick()
+const offlineText = allText(slot.lastTree).join(' | ')
+record('a broken feed is reported rather than looking calm', offlineText.includes('状态未知'), 'the card did not say the feed dropped')
+
+/* ---- 7. a frame for another conversation must not repaint this card ---- */
+feeds[0].emit({ seq: 3, state: { sessionId: 'session-2', armed: true, phase: 'clean', alert: '' } })
+await tick()
+record(
+  'a frame from another conversation does not repaint this card',
+  phaseOf() !== 'clean',
+  `phase=${phaseOf()} — one window's scan painted another window's icon`,
+)
+
+/* ---- 8. a config change elsewhere must refresh the open forms ---- */
+//
+// The rules and allowlists live in files a person edits by hand. Without this the
+// card kept showing the rules it read the first time it was opened, so a rule
+// someone disabled in the file still looked enabled here — and "looks enabled" is
+// how you end up trusting a gate that is not running.
+const panelCallsBefore = bridge.calls.filter((c) => c.method === 'panel' && c.args?.op === 'state').length
+feeds[0].emit({
+  seq: 4,
+  state: { sessionId: 'session-1', armed: true, phase: 'idle', alert: '', configRev: 7, historyRev: 1 },
+})
+await tick()
+await tick()
+const panelCallsAfter = bridge.calls.filter((c) => c.method === 'panel' && c.args?.op === 'state').length
+record(
+  'a config change elsewhere re-reads the rules instead of showing stale ones',
+  panelCallsAfter > panelCallsBefore,
+  `${panelCallsBefore} -> ${panelCallsAfter} panel reads`,
+)
+
+// The same counter arriving twice must not cause a second read: a feed that
+// replays a frame (or a reconnect that resends the current state) would otherwise
+// turn every reconnect into a burst of file reads.
+feeds[0].emit({
+  seq: 5,
+  state: { sessionId: 'session-1', armed: true, phase: 'idle', alert: '', configRev: 7, historyRev: 1 },
+})
+await tick()
+await tick()
+record(
+  'the same revision does not trigger a second read',
+  bridge.calls.filter((c) => c.method === 'panel' && c.args?.op === 'state').length === panelCallsAfter,
+  `count moved past ${panelCallsAfter}`,
+)
 
 console.log(failures === 0 ? '\nall client checks passed' : `\n${failures} client check(s) failed`)
 process.exit(failures === 0 ? 0 : 1)

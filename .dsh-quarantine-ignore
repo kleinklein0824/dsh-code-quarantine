@@ -1,9 +1,12 @@
+# 豁免规则：每行 "rule_id 路径 glob"，用 # 注释
+# rule_id 写 * 表示豁免该路径下的全部规则。路径为相对项目根目录的 POSIX 路径。
+
 # 本仓库是检测工具本身，测试夹具里必然存在恶意样本与恶意依赖名。
 # 这些命中是"被测对象"，不是"项目问题"。
 *  tests/fixtures/**
 *  examples/**
 
-# 文档里的示例命令（curl | bash）属于说明性内容
+# 文档里的示例命令属于说明性内容（远程下载后管道执行的那种写法）
 SC102  SKILL.md
 SC102  README.md
 AD001  README.md
@@ -13,18 +16,22 @@ AD003  README.md
 # 本仓库的插件测试与被测规则说明里必须出现真实的恶意样本字符串，
 # 否则无法验证检测能力。它们是测试输入，不是可执行路径。
 *      dsh-plugin/test-*.mjs
+*      tests/idea_matrix.py
 SC102  scripts/hook_shell.py
 SC102  scripts/qcore/rules/supply.py
 
-# 规则实现自己的 docstring 里必须举出真实形态的样例（「访问 relay-hub.com 领取额度」
-# 长什么样、`扫码进群` 为什么会被边界判断吃掉），否则规则没法维护。
+# 规则实现与 AI 提示词里必须举真实样例：黑名单示例、官方端点清单、
+# 中文联系方式说明。它们长得像外链，但正是被测对象。
 AD001  scripts/qcore/rules/ad.py
 AD003  scripts/qcore/rules/ad.py
 AD004  scripts/qcore/rules/ad.py
-
-# AI 复核的提示词必须列出「哪些端点算官方」，否则模型只能凭域名像不像去猜。
-# 那份清单本身长得就像推广外链。
 AD001  scripts/qcore/llm.py
-
-# 面板的输入框占位符要用一个真实形态的样例域名，用户才知道该填什么。
 AD001  scripts/panel/index.html
+
+# demo/d1api-home.html 是复刻真实中转站首页的检测夹具：页面上那些「推荐访问」
+# 「购买套餐 / 充值」和外链正是被测对象。单独扫它应当报 REVIEW（见
+# docs/d1api-replica-check.md），但本仓库自扫描不该被自己的夹具染红。
+AD001  demo/**
+AD002  demo/**
+AD003  demo/**
+AD004  demo/**

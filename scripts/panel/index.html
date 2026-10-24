@@ -470,6 +470,14 @@ let STATE = null;
 let LAST_SCAN = null;
 let VISIBLE = [];
 let RULE_EDITS = {};        // rid -> {enabled, severity}
+// 表单里有没有未保存的改动。配置监听用它决定要不要在收到新版本号时重读：
+// 用户正在改规则时把表单刷掉，比让他按一次 F5 糟得多。
+let RULES_DIRTY = false;
+// 白名单 / 豁免 / AI 表单同样会被后台刷新覆盖。规则页原来只顾自己，用户在
+// 白名单里输了一半域名时另一块面板保存一次，输入就无声地消失了。
+let FORM_DIRTY = false;
+// 「用 AI 复核」是本次扫描的选项，不是配置；配置刷新不应该把它重置回默认值。
+let USE_LLM_TOUCHED = false;
 let FILTER = { sev: 'ALL', text: '' };
 
 function toast(msg, isError) {
@@ -494,6 +502,14 @@ async function api(path, body) {
 }
 
 function target() { return $('target').value.trim(); }
+
+// 记录「用户在配置表单里输过字」。这里不管具体是哪个字段：只要白名单 / 豁免 /
+// AI 表单里有未保存内容，后台推送就不覆盖它——用户没说保存，就不该被清空。
+document.addEventListener('input', (event) => {
+  const view = event.target && event.target.closest ? event.target.closest('.view') : null;
+  if (view && ['view-allow', 'view-ignore', 'view-ai'].includes(view.id)) FORM_DIRTY = true;
+});
+$('use-llm').addEventListener('change', () => { USE_LLM_TOUCHED = true; });
 
 /* ------------------------------------------------------------ 视图切换 */
 function switchView(name) {
@@ -527,6 +543,8 @@ async function loadState(quiet) {
     renderAllow();
     renderLlm(data.llm || {});
     $('ignore-lines').value = (data.ignore || []).join('\n');
+    // 这一份数据已经落进所有表单；此前的「有未保存改动」不再成立。
+    FORM_DIRTY = false;
     $('footer').innerHTML =
       '配置：<code>' + escapeHtml(data.files.config) + '</code>　' +
       '豁免：<code>' + escapeHtml(data.files.ignore) + '</code>　' +
@@ -588,9 +606,10 @@ function renderRules() {
     };
   });
   $('rules-dirty').textContent = '';
+  RULES_DIRTY = false;
 }
 
-function markDirty() { $('rules-dirty').textContent = '有未保存的改动'; }
+function markDirty() { $('rules-dirty').textContent = '有未保存的改动'; RULES_DIRTY = true; }
 
 async function saveRules() {
   try {
@@ -663,15 +682,16 @@ function renderLlm(llm) {
     ? '当前对话模型：' + llm.host_model + '（来源：宿主环境变量）'
     : '未检测到对话模型，请手动填写「模型」';
   const bits = [];
-  if (llm.ready) bits.push('已配置：' + (llm.model || ''));
+  if (llm.enabled === false) bits.push('已关闭（扫描不会调用 AI 复核）');
+  else if (llm.ready) bits.push('已配置：' + (llm.model || ''));
   else bits.push('未配置完整（需要 base_url + model + 密钥）');
   if (llm.has_key) bits.push('密钥 ' + (llm.key_hint || '已就绪'));
   if (llm.source && llm.source !== 'none') bits.push('来源 ' + llm.source);
   $('ai-status').textContent = bits.join(' · ');
   // 只有「你自己环境变量里的端点」才自动勾上。项目配置随仓库一起来，
   // 自动勾选等于打开别人的仓库点一下扫描就把源码发出去——CLI 有这道门禁，
-  // 面板不能没有。
-  $('use-llm').checked = !!llm.ready && llm.source !== 'project';
+  // 面板不能没有。用户手动改过之后，后台刷新不再重置这个扫描选项。
+  if (!USE_LLM_TOUCHED) $('use-llm').checked = !!llm.ready && llm.source !== 'project';
 }
 
 function collectLlm() {
@@ -772,12 +792,9 @@ async function loadHistory() {
 
 $('btn-history-reload').onclick = () => loadHistory();
 
-// 停在历史页时定时重读：追加只发生在修复时，但每条记录的**状态**是关于「现在」
-// 的断言，别人手改或 git checkout 之后立刻就旧了。只在可见时轮询，别在后台烧 IO。
-setInterval(() => {
-  const view = document.querySelector('.view.active');
-  if (view && view.id === 'view-history') loadHistory();
-}, 4000);
+// 历史页不再定时重读：追加由服务端经 SSE 的 `history` 版本号推过来，落在这里的
+// `onmessage` 里。剩下一个「别人手改了文件、状态徽标过期」的场景，交给上面那颗
+// 刷新按钮——那是用户的动作，不是时钟的。
 
 /* ------------------------------------------------------------ 扫描 */
 async function runScan() {
@@ -791,7 +808,14 @@ async function runScan() {
     });
     LAST_SCAN = data;
     renderScan(data);
-    toast('扫描完成：' + data.verdict + '（' + data.summary.scanned_files + ' 个文件）');
+    // 扫描成功不等于「AI 复核真的跑了」：项目配置里的端点可能因信任门禁被拒绝。
+    // 那类说明随结果返回，不显示的话，勾了「用 AI 复核」的用户会以为复核过了。
+    const warnings = data.warnings || [];
+    toast(
+      '扫描完成：' + data.verdict + '（' + data.summary.scanned_files + ' 个文件）' +
+        (warnings.length ? '；' + warnings.join('；') : ''),
+      warnings.length > 0
+    );
   } catch (err) {
     toast('扫描失败：' + err.message, true);
   } finally {
@@ -979,23 +1003,65 @@ $('modal-copy').onclick = async () => {
 
 /* ------------------------------------------------------------ 拦截事件 */
 let LAST_EVENT = 0;
+let LAST_HISTORY = -1;
+let LAST_CONFIG = -1;
 let EVENT_BOOT = false;
+let EVENT_SOURCE = null;
 
-async function pollEvents() {
+/**
+ * 订阅拦截事件，而不是每 3 秒问一次。
+ *
+ * 轮询的代价不只是延迟：一次拦截落在两次轮询之间就要等满一个周期才出现在
+ * 横幅上，而这恰恰是用户最需要立刻知道的时刻。`/api/events/stream` 用 SSE
+ * 把事件直接推过来，`id:` 字段让浏览器断线重连时带 `Last-Event-ID`，服务端
+ * 据此补发漏掉的事件——轮询版本靠内存里的 `LAST_EVENT` 记，一刷新就丢。
+ *
+ * 保留一次 `/api/events` 的首读：连上流之前先把「打开面板前半小时内发生过
+ * 拦截」这件事补上，否则横幅要等下一次事件才亮。
+ */
+function connectEvents() {
+  if (typeof window.EventSource !== 'function') return;
+  const url = '/api/events/stream?t=' + encodeURIComponent(TOKEN);
+  const source = new window.EventSource(url);
+  EVENT_SOURCE = source;
+  source.onmessage = (message) => {
+    try {
+      const payload = JSON.parse(message.data);
+      if (!payload) return;
+      if (typeof payload.seq === 'number' && payload.seq > LAST_EVENT) LAST_EVENT = payload.seq;
+      // 一帧可能只带版本号（有人修了一行，但没有新的拦截事件）。这时不该
+      // 去动横幅——横幅讲的是「刚才拦下了什么」，不是「历史变了」。
+      if (typeof payload.history === 'number' && payload.history !== LAST_HISTORY) {
+        LAST_HISTORY = payload.history;
+        const view = document.querySelector('.view.active');
+        if (view && view.id === 'view-history') loadHistory();
+      }
+      // 配置文件被改了（手改 yml，或另一块面板保存）：重读规则/白名单/豁免。
+      // 表单里正在输入的内容会被覆盖，所以只在没有未保存改动时才重读。
+      if (typeof payload.config === 'number' && payload.config !== LAST_CONFIG) {
+        LAST_CONFIG = payload.config;
+        // quiet：这是背景刷新，不是用户按了什么，别每改一次文件就弹一个 toast。
+        // 但如果用户正在表单里输入，覆盖它比显示旧值更糟：提示一次，让他自己
+        // 保存或点「重新载入」。
+        if (!RULES_DIRTY && !FORM_DIRTY) loadState(true);
+        else toast('配置已在别处更新；当前表单有未保存内容，保存或点「重新载入」后同步', false);
+      }
+      if (payload.event) showEvent(payload.event);
+    } catch (err) { /* 单帧坏掉不该拆掉整条流 */ }
+  };
+  // EventSource 自己会重连；这里只把状态记下来，便于排查「横幅不动」是不是
+  // 连接根本没建立。
+  source.onerror = () => { EVENT_SOURCE = null; };
+}
+
+async function loadRecentEvent() {
   try {
     const data = await api('/api/events');
-    if (!EVENT_BOOT) {
-      LAST_EVENT = data.seq;
-      EVENT_BOOT = true;
-      // 打开面板时如果半小时内有过拦截，直接把横幅亮出来
-      const recent = data.events[0];
-      if (recent && (Date.now() / 1000 - (recent.ts || 0)) < 1800) showEvent(recent);
-      return;
-    }
-    if (data.seq > LAST_EVENT && data.events.length) {
-      LAST_EVENT = data.seq;
-      showEvent(data.events[0]);
-    }
+    LAST_EVENT = data.seq;
+    EVENT_BOOT = true;
+    // 打开面板时如果半小时内有过拦截，直接把横幅亮出来
+    const recent = data.events[0];
+    if (recent && (Date.now() / 1000 - (recent.ts || 0)) < 1800) showEvent(recent);
   } catch (err) { /* 面板刚启动或网络抖动，忽略 */ }
 }
 
@@ -1019,7 +1085,7 @@ $('event-goto').onclick = async () => {
   await runScan();
 };
 
-setInterval(pollEvents, 3000);
+loadRecentEvent().then(connectEvents);
 
 $('chips').querySelectorAll('.chip').forEach(chip => {
   chip.onclick = () => {

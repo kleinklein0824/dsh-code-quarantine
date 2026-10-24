@@ -97,7 +97,7 @@ python scripts/panel_server.py --target /path/to/project
 - **AI 复核**：填端点 / 模型 / 密钥变量名 / 超时 / 调用上限，点「测试连接」验证。
 - **修复历史**：每次「保存这一行」的改前改后、对应规则、备份路径、改完还剩几条。只读。
   读取时带 `verify=1` 逐条回读磁盘，标出 `current` / `reverted` / `stale` / `gone`；
-  页面停在这一标签时每 4 秒重读——记录是快照，代码会继续变。
+  状态变化由 SSE 推送（见下），记录是快照，代码会继续变。
 
 面板只做两件事：读当前配置、把改动写回 `.dsh-quarantine.yml` 与 `.dsh-quarantine-ignore`。
 扫描仍然调用同一套引擎，所以**面板结果与 CLI 结果必然一致**，不存在"面板里 SAFE、CI 里 BLOCK"的情况。
@@ -314,7 +314,7 @@ plugin_manager install_bundle  target = /path/to/dsh-code-quarantine/dsh-plugin
 跳转·编辑·交给 AI·豁免）、规则开关（24 条逐条调级别与启停）、白名单（四类）、
 豁免清单、AI 复核（8 个字段 + 测试连接）、修复历史（每次改动的改前改后、对应
 规则、备份路径、改完还剩几条，逐条核对磁盘标出 `current`/`reverted`/`stale`/`gone`，
-停留时每 4 秒刷新）。卡片经 `/dsh-code-quarantine/rpc`
+停留时随推送刷新）。卡片经 `/dsh-code-quarantine/rpc`
 → `scripts/panel_bridge.py` → 同一个 `Panel` 对象，**判定与写配置逻辑只有一份**。
 扫描目标是当前会话的工作区（卡片标题下会显示该路径）。
 
@@ -322,12 +322,25 @@ plugin_manager install_bundle  target = /path/to/dsh-code-quarantine/dsh-plugin
 状态（开关 / 颜色 / 计数 / 拦截级别），拦截侧取自 `tools/pre-execute` 的
 `exec.agent.session.id`。两个窗口开两个项目时互不影响。详见 `dsh-plugin/README.md`。
 
+**总开关**：卡片底部左侧的「总开关」是整个安装级的选择，持久化在
+`$DSH_HOME/dsh-code-quarantine.settings.json`。关闭后写入拦截与自动审计都停用，图标变灰，
+但手动扫描与全部配置页仍然可用；打开（默认）时，**每个新会话创建后会自动对它的工作区
+做一次全量审计**，结果直接进入图标与扫描页（完整命中表由 Host 缓存，卡片按
+`scanRev` 取一次）。审计是异步子进程，不阻塞窗口创建；子 agent 会话不重复扫描
+父会话的工作区；工作区是 home / 盘根 / `$DSH_HOME` 时跳过（空白会话常见），
+手动扫描不受限。
+
+**界面靠推送，不靠轮询**：面板与卡片各开一条 SSE 长连接
+（`/api/events/stream`、`/dsh-code-quarantine/events`）。拦截、修复、保存配置、
+手改 `.dsh-quarantine.yml` 都会立刻反映到已经打开的界面——用轮询的话，一次落在
+tick 之后的拦截要等满一个周期才显示，而这段空窗是看不见的，图标只是显得平静。
+
 ```bash
 node dsh-plugin/test-gate.mjs     # 23 项决策层断言
 node dsh-plugin/test-e2e.mjs      # 7 项注册表层断言（真 Context + 真 ToolRuntime）
 node dsh-plugin/test-loader.mjs   # 7 项加载器层断言（真 loader + file:// 说明符）
-node dsh-plugin/test-state.mjs    # 72 项状态机与 RPC 断言
-node dsh-plugin/test-client.mjs   # 24 项卡片交互断言（含二次点击与会话隔离回归）
+node dsh-plugin/test-state.mjs    # 114 项状态机与 RPC 断言
+node dsh-plugin/test-client.mjs   # 42 项卡片交互断言（含二次点击、总开关与会话隔离回归）
 ```
 
 ### Claude Code / WorkBuddy
@@ -353,7 +366,7 @@ hook 与插件都读环境变量：`DSH_QUARANTINE_RULES`（规则目录）、`D
 ## 自检
 
 ```bash
-python -m unittest discover -s tests         # 188 个单元用例（含 27 个安全用例 + 92 个缺口回归）
+python -m unittest discover -s tests         # 203 个单元用例（含 27 个安全用例 + 106 个缺口回归）
 python tests/functional_sweep.py             # 44 项端到端功能检测（每个对外入口真跑一遍）
 python tests/brutal_suite.py                 # 100 个地狱式功能用例
 python tests/idea_matrix.py                  # idea.md 逐条验收（83 条断言）
@@ -361,8 +374,8 @@ python tests/realworld_regression.py         # 8 个真实库 581 文件的误�
 node dsh-plugin/test-gate.mjs                # DSH 闸门决策层（23 项）
 node dsh-plugin/test-e2e.mjs                 # 注册表层：被拒的调用不落到 tool body（7 项）
 node dsh-plugin/test-loader.mjs              # 加载器层：用户真正粘贴的那条部署路径（7 项）
-node dsh-plugin/test-state.mjs                # 状态机与 RPC（72 项）
-node dsh-plugin/test-client.mjs               # 卡片交互（24 项）
+node dsh-plugin/test-state.mjs                # 状态机与 RPC（114 项）
+node dsh-plugin/test-client.mjs               # 卡片交互（42 项）
 ```
 
 `tests/functional_sweep.py` 和单测分工不同：单测锁「函数行为」，它锁「用户真的能用的

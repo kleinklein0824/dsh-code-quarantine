@@ -13,6 +13,38 @@ from typing import Dict, List, Optional, Tuple
 PANEL_INFO = ".dsh-quarantine-panel.json"
 MAX_HOOK_BYTES = 2 * 1024 * 1024   # 单次写入内容上限，超出只告警不扫描
 
+# Machine-readable report channel for wrappers that are not the hook host.
+#
+# The DSH gate plugin needs the counts of *every* inspection, including the ones
+# it lets through — that is how a WARNING-only pass turns the icon amber instead
+# of green. It used to scrape stderr for that, which forced the hook to write the
+# report even when it allowed the call; hosts render any non-empty hook stderr as
+# a red `Error:` line, so every normal write looked broken.
+#
+# So: the human-facing transcript stays silent unless something is blocked, and
+# the machine-facing report goes to a file named by this environment variable.
+REPORT_ENV = "DSH_QUARANTINE_REPORT_FILE"
+
+
+def write_report(payload: Dict) -> bool:
+    """Append one JSON line to the report file named by ``REPORT_ENV``.
+
+    Off by default (no variable, no file): a plain CLI user never accumulates
+    reports, and a hook host that does not read them pays nothing. Failures are
+    swallowed — a reporting channel that can break the gate is worse than no
+    reporting channel.
+    """
+    path = os.environ.get(REPORT_ENV)
+    if not path:
+        return False
+    try:
+        with open(path, "a", encoding="utf-8", newline="\n") as fh:
+            fh.write(json.dumps(payload, ensure_ascii=False) + "\n")
+        return True
+    except OSError:
+        return False
+
+
 
 def notify_panel(root: str, payload: Dict) -> bool:
     """把拦截事件推给正在运行的控制面板；面板没开就静默跳过。

@@ -11,7 +11,10 @@ def parse(source) -> Optional[ast.AST]:
         return source.tree
     try:
         source.tree = ast.parse(source.text)
-    except SyntaxError:
+    except (SyntaxError, RecursionError):
+        # See `lexer.Source._scan_python`: a pathologically nested expression
+        # overflows the recursive parser. "No tree" is the right answer there,
+        # not an exception that takes the rest of the project down with it.
         source.tree = None
     return source.tree
 

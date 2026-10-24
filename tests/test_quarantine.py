@@ -12,13 +12,14 @@ import shutil
 import subprocess
 import sys
 import tempfile
+import time
 import unittest
 
 HERE = os.path.dirname(os.path.abspath(__file__))
 ROOT = os.path.dirname(HERE)
 sys.path.insert(0, os.path.join(ROOT, "scripts"))
 
-from qcore import payload, yamlite  # noqa: E402
+from qcore import history, payload, yamlite  # noqa: E402
 from qcore.config import Config  # noqa: E402
 from qcore.lexer import Source  # noqa: E402
 from qcore.rules import arch  # noqa: E402
@@ -197,6 +198,26 @@ class LexerContract(unittest.TestCase):
         src = Source("a.html", html)
         self.assertEqual("string", src.region(html.index("https://")))
 
+    def test_pathologically_nested_expression_does_not_crash_lexer(self):
+        """`ast.parse` 是递归下降的，操作数极多的单行表达式会撑爆 C 栈。
+
+        这是文件本身的属性，不是扫描器的 bug：``RecursionError`` 一旦逃出
+        ``Source``，整个项目的审计会连同后面所有文件一起中断。正确行为是
+        降级为「没有 AST」，词法层（注释/字符串 spans）照常工作。
+        """
+        text = "x = " + " + ".join(["1"] * 60000) + "\n"
+        src = Source("deep.py", text)
+        self.assertIsNone(src.tree)
+        self.assertTrue(src.parse_error)
+
+    def test_snippet_scan_survives_pathologically_nested_expression(self):
+        """同样的输入走 ``scan_text``（写入前 hook 的入口）也不能抛异常。"""
+        cfg = Config(RULES, HERE)
+        text = "y = " + " * ".join(["2"] * 60000) + "\n"
+        result = scan_text(text, "deep.py", cfg)
+        self.assertFalse(result.error)
+        self.assertIn("deep.py", result.scanned)
+
 
 class PayloadDecoding(unittest.TestCase):
     def test_base64_shell_payload(self):
@@ -374,7 +395,79 @@ class HookContract(unittest.TestCase):
         proc = self._run_hook("hook_pre_write.py", payload)
         self.assertEqual(0, proc.returncode)
 
-    def test_post_write_flags_on_disk_file(self):
+    def test_pre_write_is_quiet_when_it_lets_a_warning_through(self):
+        """放行的写入不能往 stderr 写东西。
+
+        宿主把 hook 的任何非空 stderr 渲染成红色的 `Error:`。原先只要命中
+        WARNING 就先打报告再 exit 0，于是每一次「写了带外链的注释」这样的
+        正常操作，在对话里都变成一条红色错误——用户会去查一个并不存在的问题。
+        命中已经通过 notify_panel 送到卡片，琥珀色图标才是「看到了但没拦」。
+        """
+        payload = {
+            "hook_event_name": "PreToolUse",
+            "cwd": ROOT,
+            "tool_name": "Write",
+            "tool_input": {
+                "file_path": "src/notes.py",
+                "content": "# https://random-writer-hub.com/x\nx = 1\n",
+            },
+        }
+        proc = self._run_hook("hook_pre_write.py", payload)
+        self.assertEqual(0, proc.returncode, proc.stderr)
+        self.assertEqual("", proc.stderr, "放行时 stderr 必须为空，否则宿主会渲染成红色错误")
+
+    def test_pre_write_explains_a_threshold_only_block(self):
+        """因为阈值被拦时，必须说清「不是这段代码有毒，是你的级别设得高」。
+
+        `DSH_QUARANTINE_BLOCK_ON=warning` 下一条纯 WARNING 也会 exit 2。报告里
+        只有 `REVIEW CRITICAL 0 | WARNING 1`，用户看到红色阻断会以为代码真有
+        严重问题；提示语必须指出这是拦截级别造成的。
+        """
+        payload = {
+            "hook_event_name": "PreToolUse",
+            "cwd": ROOT,
+            "tool_name": "Write",
+            "tool_input": {
+                "file_path": "src/notes.py",
+                "content": "# https://random-writer-hub.com/x\nx = 1\n",
+            },
+        }
+        env = dict(os.environ, DSH_QUARANTINE_BLOCK_ON="warning")
+        proc = subprocess.run(
+            [PY, os.path.join(ROOT, "scripts", "hook_pre_write.py")],
+            input=json.dumps(payload, ensure_ascii=False),
+            capture_output=True,
+            text=True,
+            encoding="utf-8",
+            env=env,
+        )
+        self.assertEqual(2, proc.returncode, proc.stderr)
+        self.assertIn("拦截级别", proc.stderr)
+
+    def test_post_write_is_quiet_when_nothing_blocks(self):
+        """落盘复查只在 CRITICAL 时说话。
+
+        文件已经写下去了，WARNING 既不阻断也不改变任何结果；此时往 stderr
+        写字，宿主就会在一次成功的工具调用上盖一个红色 `Error:`。
+        """
+        path = _copy_fixture("clean")
+        try:
+            target = os.path.join(path, "src", "notes.py")
+            os.makedirs(os.path.dirname(target), exist_ok=True)
+            with io.open(target, "w", encoding="utf-8", newline="\n") as fh:
+                fh.write("# https://random-writer-hub.com/x\nx = 1\n")
+            payload = {
+                "hook_event_name": "PostToolUse",
+                "cwd": path,
+                "tool_name": "Write",
+                "tool_input": {"file_path": target},
+            }
+            proc = self._run_hook("hook_post_write.py", payload)
+            self.assertEqual(0, proc.returncode, proc.stderr)
+            self.assertEqual("", proc.stderr)
+        finally:
+            shutil.rmtree(os.path.dirname(path), ignore_errors=True)
+
         path = _copy_fixture("vulnerable")
         try:
             payload = {
@@ -388,6 +481,95 @@ class HookContract(unittest.TestCase):
             self.assertIn("SC103", proc.stderr)
         finally:
             shutil.rmtree(os.path.dirname(path), ignore_errors=True)
+
+    def test_pre_write_reports_counts_even_when_it_stays_quiet(self):
+        """放行时屏幕要静，但计数必须仍然送得出去。
+
+        这两件事看起来矛盾：宿主把 hook 的 stderr 渲染成红色 `Error:`，所以
+        放行时不能往 stderr 写；可卡片要靠计数把图标涂成琥珀色，而一个只命中
+        WARNING 的写入恰恰什么都没被拦。
+
+        解法是两条通道、两个受众：给人看的转写保持干净，给包装层看的计数写进
+        `DSH_QUARANTINE_REPORT_FILE` 指向的文件。
+        """
+        report = os.path.join(tempfile.mkdtemp(prefix="cq-report-"), "report.jsonl")
+        try:
+            payload = {
+                "hook_event_name": "PreToolUse",
+                "cwd": ROOT,
+                "tool_name": "Write",
+                # `os.system(<variable>)` 是 WARNING 而非 CRITICAL：样本必须低于
+                # 阻断阈值，否则测的是拦截路径，不是「安静放行」路径。
+                "tool_input": {
+                    "file_path": "src/run.py",
+                    "content": "import os\n\ndef run(cmd):\n    os.system(cmd)\n",
+                },
+            }
+            env = dict(os.environ, DSH_QUARANTINE_REPORT_FILE=report)
+            proc = subprocess.run(
+                [PY, os.path.join(ROOT, "scripts", "hook_pre_write.py")],
+                input=json.dumps(payload, ensure_ascii=False),
+                capture_output=True,
+                text=True,
+                encoding="utf-8",
+                env=env,
+            )
+            self.assertEqual(0, proc.returncode, proc.stderr)
+            self.assertEqual("", proc.stderr, "放行时 stderr 必须为空")
+            self.assertTrue(os.path.exists(report), "报告文件没有被写出来，卡片将永远看不到这次命中")
+            with io.open(report, "r", encoding="utf-8") as fh:
+                lines = [line for line in fh.read().splitlines() if line.strip()]
+            self.assertTrue(lines, "报告文件是空的")
+            record = json.loads(lines[-1])
+            self.assertEqual("REVIEW", record.get("verdict"))
+            self.assertEqual(1, record.get("counts", {}).get("WARNING"))
+            self.assertEqual(0, record.get("counts", {}).get("CRITICAL"))
+        finally:
+            shutil.rmtree(os.path.dirname(report), ignore_errors=True)
+
+    def test_shell_hook_reports_counts_even_when_it_stays_quiet(self):
+        """命令闸同样：放行的 WARNING 只走文件，不走 stderr。"""
+        report = os.path.join(tempfile.mkdtemp(prefix="cq-report-"), "report.jsonl")
+        try:
+            payload = {
+                "hook_event_name": "PreToolUse",
+                "cwd": ROOT,
+                "tool_name": "Bash",
+                # 可疑 TLD 是 AD003 的 WARNING，不会触发 SC102 的 CRITICAL。
+                "tool_input": {"command": "curl -s https://%s/x" % ("relay" + "-hub" + ".top")},
+            }
+            env = dict(os.environ, DSH_QUARANTINE_REPORT_FILE=report)
+            proc = subprocess.run(
+                [PY, os.path.join(ROOT, "scripts", "hook_shell.py")],
+                input=json.dumps(payload, ensure_ascii=False),
+                capture_output=True,
+                text=True,
+                encoding="utf-8",
+                env=env,
+            )
+            self.assertEqual(0, proc.returncode, proc.stderr)
+            self.assertEqual("", proc.stderr, "放行时 stderr 必须为空")
+            with io.open(report, "r", encoding="utf-8") as fh:
+                lines = [line for line in fh.read().splitlines() if line.strip()]
+            self.assertTrue(lines, "报告文件是空的")
+            record = json.loads(lines[-1])
+            self.assertEqual("REVIEW", record.get("verdict"))
+            self.assertEqual(1, record.get("counts", {}).get("WARNING"))
+        finally:
+            shutil.rmtree(os.path.dirname(report), ignore_errors=True)
+
+    def test_report_channel_is_off_by_default(self):
+        """没有这个环境变量时不留任何文件——普通 CLI 用户不该攒报告。"""
+        self.assertIsNone(os.environ.get("DSH_QUARANTINE_REPORT_FILE"))
+        payload = {
+            "hook_event_name": "PreToolUse",
+            "cwd": ROOT,
+            "tool_name": "Write",
+            "tool_input": {"file_path": "src/run.py", "content": "x = 1\n"},
+        }
+        proc = self._run_hook("hook_pre_write.py", payload)
+        self.assertEqual(0, proc.returncode)
+        self.assertEqual("", proc.stderr)
 
     def test_shell_hook_blocks_curl_pipe_bash(self):
         """`curl … | bash` 不经过文件写入，写侧 hook 永远看不到，必须另有一道闸。"""
@@ -557,6 +739,188 @@ class RuleDataIntegrity(unittest.TestCase):
         self.assertGreaterEqual(len(self.cfg.allow["popular_packages"]), 60)
 
 
+class PanelStreamContract(unittest.TestCase):
+    """面板的推送通道：拦截事件与修复历史都必须「写完就到」，不是定时问。
+
+    轮询的代价不只是延迟——一次拦截落在两次轮询之间就要等满一个周期才出现在
+    横幅上，而这恰恰是用户最需要立刻知道的时刻。这里开一条真实的 HTTP 连接读
+    SSE，而不是调内部方法：`Content-Type`、分帧格式、`id:` 补发都是协议的一部分，
+    客户端（浏览器）只认这些。
+    """
+
+    def setUp(self):
+        from http.server import ThreadingHTTPServer
+        import threading
+
+        from panel_server import Handler, Panel
+
+        os.environ["DSH_QUARANTINE_NO_LAUNCH"] = "1"
+        self.dir = _copy_fixture("vulnerable")
+        Handler.panel = Panel(self.dir, RULES)
+        Handler.token = "stream-token"
+        self.panel = Handler.panel
+        self.httpd = ThreadingHTTPServer(("127.0.0.1", 0), Handler)
+        self.httpd.daemon_threads = True
+        self.port = self.httpd.server_address[1]
+        threading.Thread(target=self.httpd.serve_forever, daemon=True).start()
+        self.addCleanup(shutil.rmtree, os.path.dirname(self.dir), True)
+        self.addCleanup(self.httpd.server_close)
+        self.addCleanup(self.httpd.shutdown)
+
+    def _open_stream(self, last_id=0):
+        """打开一条 SSE 连接，返回 (socket 文件对象, 响应)。"""
+        import socket
+
+        sock = socket.create_connection(("127.0.0.1", self.port), timeout=10)
+        self.addCleanup(sock.close)
+        header = "GET /api/events/stream?t=stream-token HTTP/1.1\r\nHost: 127.0.0.1\r\n"
+        if last_id:
+            header += "Last-Event-ID: %d\r\n" % last_id
+        sock.sendall((header + "Connection: keep-alive\r\n\r\n").encode("ascii"))
+        reader = sock.makefile("rb")
+        status = reader.readline()
+        headers = {}
+        while True:
+            line = reader.readline()
+            if line in (b"\r\n", b"\n", b""):
+                break
+            key, _, value = line.decode("latin-1").partition(":")
+            headers[key.strip().lower()] = value.strip()
+        return reader, status, headers
+
+    @staticmethod
+    def _read_frame(reader, timeout=6.0):
+        """读到一帧 `data:` 为止（注释行与空行跳过）。"""
+        import threading
+
+        box = {}
+
+        def pump():
+            while True:
+                line = reader.readline()
+                if not line:
+                    box["done"] = True
+                    return
+                text = line.decode("utf-8", "replace")
+                if text.startswith("data: "):
+                    box["data"] = text[6:].strip()
+                    return
+
+        worker = threading.Thread(target=pump, daemon=True)
+        worker.start()
+        worker.join(timeout)
+        return box.get("data")
+
+    def test_stream_announces_itself_as_event_stream(self):
+        _, status, headers = self._open_stream()
+        self.assertIn(b"200", status)
+        self.assertIn("text/event-stream", headers.get("content-type", ""))
+        # 代理会把没有 Content-Length 的响应攒起来，攒够了才发；no-transform +
+        # no-store 是让它别这么做的两个头。
+        self.assertIn("no-store", headers.get("cache-control", ""))
+
+    def test_a_block_is_pushed_without_asking(self):
+        reader, _, _ = self._open_stream()
+        # 首帧是「现在的状态」，让刚打开的页面立刻有颜色
+        first = self._read_frame(reader)
+        self.assertIsNotNone(first)
+        self.assertIn('"seq"', first)
+        self.panel.add_event({"type": "pre-write", "file": "src/a.py", "verdict": "BLOCK",
+                              "counts": {"CRITICAL": 1, "WARNING": 0, "INFO": 0}})
+        frame = self._read_frame(reader)
+        self.assertIsNotNone(frame, "一次拦截没有推送到已连接的页面")
+        payload = json.loads(frame)
+        self.assertEqual("src/a.py", payload["event"]["file"])
+        self.assertEqual(1, payload["event"]["counts"]["CRITICAL"])
+
+    def test_a_repair_bumps_the_history_revision_on_the_stream(self):
+        reader, _, _ = self._open_stream()
+        first = json.loads(self._read_frame(reader))
+        before = first.get("history", 0)
+        self.panel.write_line("src/ad_comment.py", 9, "", context={"rule_id": "AD001", "source": "panel"})
+        frame = self._read_frame(reader)
+        self.assertIsNotNone(frame, "修复历史长了，但页面没收到任何帧")
+        payload = json.loads(frame)
+        self.assertGreater(payload["history"], before)
+        # 只有版本号、没有事件：这类帧不该去动拦截横幅
+        self.assertIsNone(payload.get("event"))
+
+    def test_a_config_edit_by_hand_reaches_the_open_page(self):
+        """手改 `.dsh-quarantine.yml` 也要推一帧。
+
+        `.dsh-quarantine.yml` 是个给人写的文件，用户手改它是常态；规则页只在
+        打开时读一次，没有这个监听，用户改完得自己按 F5 才知道生效了没有。
+        这条用例同时守住一个真实过的崩溃：`_config_stamp()` 返回的是三元组
+        元组，监听线程却用 `dict()` 转它，第一次执行就抛
+        「dictionary update sequence element #0 has length 3; 2 is required」，
+        线程当场死掉，而页面看起来一切正常——只是永远显示旧配置。
+        """
+        reader, _, _ = self._open_stream()
+        first = json.loads(self._read_frame(reader))
+        before = first.get("config", 0)
+        self.panel.start_config_watch(0.2)
+        self.addCleanup(self.panel.stop_config_watch)
+        # The watcher takes its baseline stamp as its very first statement. Writing
+        # the file before that baseline lands makes the edit part of "the state we
+        # started from", and the test would then be racing the thread rather than
+        # testing it.
+        deadline = time.time() + 5.0
+        while self.panel._config_stamps == () and time.time() < deadline:
+            time.sleep(0.02)
+        self.assertNotEqual((), self.panel._config_stamps, "配置监听线程没有启动")
+        with open(os.path.join(self.dir, ".dsh-quarantine.yml"), "w", encoding="utf-8") as fh:
+            fh.write("# hand edit\nallow:\n  domains: []\n")
+        frame = self._read_frame(reader, timeout=8.0)
+        self.assertIsNotNone(frame, "配置文件改了，但已连接的页面没收到任何帧")
+        payload = json.loads(frame)
+        self.assertGreater(payload["config"], before)
+        self.assertIsNone(payload.get("event"))
+
+    def test_a_history_edit_from_the_other_surface_reaches_the_open_page(self):
+        """插件卡片写了同一份 JSONL，浏览器历史页也要知道。
+
+        浏览器面板的 `_history_rev` 只记得自己写的那几笔。插件卡片通过
+        `panel_bridge.py` 修复一行时，写的是目标目录下的同一份
+        `.dsh-quarantine-history.jsonl`；不盯文件的话，停在这一页的用户会一直
+        看到旧历史，直到手动点「刷新」。
+        """
+        reader, _, _ = self._open_stream()
+        first = json.loads(self._read_frame(reader))
+        before = first.get("history", 0)
+        self.panel.start_config_watch(0.2)
+        self.addCleanup(self.panel.stop_config_watch)
+        deadline = time.time() + 5.0
+        while self.panel._history_stamp == () and time.time() < deadline:
+            time.sleep(0.02)
+        self.assertNotEqual((), self.panel._history_stamp, "历史监听线程没有启动")
+        history.append(self.dir, {
+            "kind": "fix",
+            "file": "src/ad_comment.py",
+            "line": 9,
+            "before": "# 推荐访问 https://relay-promo-hub.top",
+            "after": "",
+            "rule_id": "AD001",
+            "source": "card",
+            "remaining": 0,
+        })
+        frame = self._read_frame(reader, timeout=8.0)
+        self.assertIsNotNone(frame, "历史文件长了，但已连接的页面没收到任何帧")
+        payload = json.loads(frame)
+        self.assertGreater(payload["history"], before)
+        self.assertIsNone(payload.get("event"))
+
+    def test_reconnect_replays_only_what_was_missed(self):
+        self.panel.add_event({"type": "pre-write", "file": "one.py", "verdict": "BLOCK", "counts": {"CRITICAL": 1}})
+        self.panel.add_event({"type": "pre-write", "file": "two.py", "verdict": "BLOCK", "counts": {"CRITICAL": 1}})
+        seq = self.panel._seq
+        reader, _, _ = self._open_stream(last_id=seq - 1)
+        frame = self._read_frame(reader)
+        self.assertIsNotNone(frame, "断线重连没有补发漏掉的事件")
+        payload = json.loads(frame)
+        self.assertEqual("two.py", payload["event"]["file"])
+        self.assertEqual(seq, payload["event"]["id"])
+
+
 class PanelContract(unittest.TestCase):
     """控制面板：只读写配置文件，扫描结果必须与 CLI 一致。"""
 
@@ -686,6 +1050,46 @@ class PanelContract(unittest.TestCase):
         self._post("/api/ignore", {"rule_id": "AD001", "path": "src/ad_comment.py"})
         _, res = self._post("/api/ignore", {"rule_id": "AD001", "path": "src/ad_comment.py"})
         self.assertEqual(1, res["ignore"].count("AD001 src/ad_comment.py"))
+
+    def test_save_without_an_ignore_key_keeps_the_existing_exemptions(self):
+        """「这次保存没提豁免」不等于「豁免清空」。
+
+        缺失与空列表是两回事。把它们都当空列表，任何一个只保存规则或白名单的
+        调用方都会把用户手写积累的豁免清单静默抹掉——而那份清单没有任何备份，
+        抹掉之后下一次扫描立刻满屏告警，用户却不知道是自己刚才点了保存。
+        """
+        ignore_path = os.path.join(self.dir, ".dsh-quarantine-ignore")
+        with open(ignore_path, "w", encoding="utf-8") as fh:
+            fh.write("AD001  src/ad_comment.py\nSC102  scripts/build.sh\n")
+
+        status, res = self._post("/api/save", {
+            "rules": {"AD005": {"enabled": True, "severity": "CRITICAL"}},
+            "allow": {"domains": [], "blocked_domains": [], "registries": [], "cdn_domains": []},
+        })
+        self.assertEqual(200, status)
+        self.assertTrue(res["ok"])
+
+        with open(ignore_path, encoding="utf-8") as fh:
+            kept = fh.read()
+        self.assertIn("AD001  src/ad_comment.py", kept)
+        self.assertIn("SC102  scripts/build.sh", kept)
+
+    def test_save_with_an_empty_ignore_list_does_clear_it(self):
+        # 反过来也要成立：明确传了空列表就是「清空」，否则用户没法撤销豁免。
+        ignore_path = os.path.join(self.dir, ".dsh-quarantine-ignore")
+        with open(ignore_path, "w", encoding="utf-8") as fh:
+            fh.write("AD001  src/ad_comment.py\n")
+
+        status, _ = self._post("/api/save", {
+            "rules": {},
+            "allow": {"domains": [], "blocked_domains": [], "registries": [], "cdn_domains": []},
+            "ignore": [],
+        })
+        self.assertEqual(200, status)
+
+        with open(ignore_path, encoding="utf-8") as fh:
+            cleared = fh.read()
+        self.assertNotIn("AD001  src/ad_comment.py", cleared)
 
     def test_bad_target_returns_400(self):
         import urllib.error
@@ -1009,7 +1413,11 @@ class BrandAndEntryPoints(unittest.TestCase):
         )
         self.assertEqual(0, proc.returncode)
         self.assertIn("panel_server.py", proc.stdout)
-        self.assertIn("eye-of-horus.ico", proc.stdout)
+        if os.name == "nt":
+            self.assertIn("eye-of-horus.ico", proc.stdout)
+        else:
+            # 快捷方式创建是 Windows 专属能力；Linux/macOS 应给出面板启动命令。
+            self.assertIn("只处理 Windows 快捷方式", proc.stdout)
 
 
 class LLMContract(unittest.TestCase):
@@ -1550,9 +1958,9 @@ class MissingRulesAreNotSafe(unittest.TestCase):
 class MarkupDetection(unittest.TestCase):
     """HTML 页面能不能被检出。
 
-    这是用推广型中转站页面样本验证时发现的：整页写着「推荐访问 …」
-    「购买套餐 / 充值」和一串外链，扫描结果却可能是 SAFE 0/0/0。根因不在规则，
-    在词法层——`_scan_markup` 只把
+    这是用真实页面（d1api.xin 首页的逐字复刻，见 `demo/d1api-home.html`）验证时
+    发现的：整页写着「推荐访问 …」「购买套餐 / 充值：发卡网购买链接」和一串外链，
+    扫描结果却是 SAFE 0/0/0。根因不在规则，在词法层——`_scan_markup` 只把
     `<!-- -->` 标成注释，属性值和文本节点既不是 comment 也不是 string，
     于是广告规则拿到的逐行文本缓存是空的。
 
@@ -1614,16 +2022,21 @@ class MarkupDetection(unittest.TestCase):
         html = "<h1>Hello</h1>\n<p>Nothing to see here.</p>\n"
         self.assertEqual(set(), self._ids(html))
 
-    def test_promotional_markup_page_is_not_safe(self):
-        """完整的合成推广页必须同时覆盖文本、属性和组合信号。"""
-        html = self._html(
-            "<h1>AI API</h1>",
-            "<p>\u63a8\u8350\u8bbf\u95ee ",
-            '<a href="https://relay-promo-hub.top/doc">\u83b7\u53d6\u6700\u65b0\u6587\u6863</a></p>',
-            '<a href="https://relay-promo-hub.top/buy">\u8d2d\u4e70\u5957\u9910</a>',
-        )
+    def test_replica_fixture_is_not_safe(self):
+        """仓库里的复刻页必须能被检出，否则这条夹具就失去意义。
+
+        这里刻意用 `use_ignore=False`：仓库的 `.dsh-quarantine-ignore` 为了不让
+        整仓自扫描被自己的夹具染红，登记了 `AD001 demo/**` 等三条。要验证的是
+        「这份 HTML 本身能不能被测出来」，不是「本仓库的豁免策略长什么样」——
+        用带豁免的配置去扫，测的其实是豁免文件，夹具坏了也照样绿。
+        """
+        path = os.path.join(ROOT, "demo", "d1api-home.html")
+        if not os.path.exists(path):
+            self.skipTest("demo/d1api-home.html 不存在")
+        with io.open(path, encoding="utf-8") as fh:
+            text = fh.read()
         bare = Config(RULES, ROOT, use_ignore=False)
-        result = scan_text(html, "promo.html", bare)
+        result = scan_text(text, "demo/d1api-home.html", bare)
         self.assertNotEqual("SAFE", result.verdict())
         ids = {f.rule_id for f in result.findings}
         self.assertIn("AD001", ids)
@@ -1679,13 +2092,39 @@ class BareDomainPrecision(unittest.TestCase):
         self.assertNotIn("AD003", ids)
         self.assertNotIn("AD001", ids)
 
+    def test_a_quote_ends_the_url(self):
+        """引号是字符串的边界，不是 URL 的一部分。
+
+        `URL_RE` 的字符类里带上单引号之后，
+        ``new URL(request.url, 'http://localhost').searchParams.get('session')``
+        被整体吃成 ``http://localhost').searchparams.get('session``，「主机名」
+        于是变成了 JavaScript 源码。报出来的告警连地址都不是，比漏报更难查。
+        """
+        code = "sessionId = new URL(request.url, 'http://localhost').searchParams.get('session') || ''\n"
+        self.assertEqual(set(), self._ids(code, rel="a.js"))
+
+    def test_balanced_parentheses_survive(self):
+        """带括号的路径是合法 URL，不能因为去尾标点被截断。
+
+        维基百科那类路径（``/wiki/Foo_(bar)``）里括号是地址的一部分；只有
+        结尾**不成对**的闭括号才是句子标点。截断了就等于把一条正常文档链接
+        变成了另一个地址。
+        """
+        sys.path.insert(0, os.path.join(ROOT, "scripts"))
+        from qcore.lexer import Source
+        from qcore.rules import ad
+
+        text = "# see https://en.wikipedia.org/wiki/Foo_(bar) for details\nx = 1\n"
+        urls = [url for _, url, _, _, bare in ad._url_hits(Source("a.py", text), self.cfg) if not bare]
+        self.assertIn("https://en.wikipedia.org/wiki/Foo_(bar)", urls)
+
 
 class BilingualPromoCoverage(unittest.TestCase):
     """中英文推广话术必须都能被认出来。
 
-    这张表是「用户看到的中转站广告长什么样」的清单：中英文均用合成域名
-    复现公开样本中的句式。每条都断言 AD001 命中，且对照组（正常注释、
-    官方文档链接）不命中。
+    这张表是「用户看到的中转站广告长什么样」的清单：中文侧来自真实页面
+    （`demo/d1api-home.html` 复刻的 d1api.xin 首页），英文侧来自同类站点的
+    英文版。每条都断言 AD001 命中，且对照组（正常注释、官方文档链接）不命中。
 
     样本靠 ``cs()`` 按码点拼装而不是写中文字面量：这个文件位于 `tests/` 下，
     AD001 会主动跳过测试路径，写死样本反而证明不了规则在真实路径下的行为，
@@ -1717,7 +2156,7 @@ class BilingualPromoCoverage(unittest.TestCase):
             # 官网
             "official": "# " + self.cs(0x5b98, 0x7f51) + ": " + url + "\nx = 1\n",
             # 加QQ群（渠道名夹在动词中间，单独的「加群」匹配不到）
-            "qq-group": "# " + self.cs(0x52a0, 0x0051, 0x0051, 0x7fa4) + " 123456789 relay-promo-hub.top\nx = 1\n",
+            "qq-group": "# " + self.cs(0x52a0, 0x0051, 0x0051, 0x7fa4) + " 123456789 qm.qq.com\nx = 1\n",
             # 加群 + t.me
             "telegram": "# " + self.cs(0x52a0, 0x7fa4) + " t.me/promo_group_xyz\nx = 1\n",
         }

@@ -12,15 +12,16 @@
 | Host 半部（`index.js`） | 监听 `tools/pre-execute`，拦截 5 个写入工具与 3 个 shell 工具；命中 CRITICAL 时返回 `deny`，把 evidence 与修复建议交给模型 |
 | RPC（`/dsh-code-quarantine/rpc`） | 卡片与 Host 之间的通道：读状态、开关、拦截级别、触发全量审计、清除提示，以及转发 `panel` 调用 |
 | 面板桥（`scripts/panel_bridge.py`） | 把 `panel_server.Panel` 暴露成 stdin/stdout JSON，让卡片复用同一套读写实现 |
-| Client 半部（`client.js`） | 在 `conversation.input.right` 注册图标按钮 + 六标签面板卡片 |
+| Client 半部（`client.js`） | 在 `conversation.input.right` 注册图标按钮 + 七标签面板卡片 |
 
 ### 卡片里有什么
 
 点开图标是一张与 `scripts/panel_server.py` 那套本地控制面板**同构**的卡片，
-六个标签页（与面板一一对应，面板与卡片读的是同一份 `.dsh-quarantine-history.jsonl`）：
+七个标签页（与面板一一对应，面板与卡片读的是同一份 `.dsh-quarantine-history.jsonl`）：
 
 | 标签页 | 内容 |
 |---|---|
+| 实时监测 | **默认页，不需要点任何按钮**。会话第一次工具调用起，每次被拦的写入/命令立刻出现在这里：文件、判定（通过 / 有预警 / 已拦截）、命中规则、消息、时间；顶部是监控状态灯、「已检查 / 命中」计数与被监测的工作区路径。数据来自 `inspect()` 的 `liveLog`，按 `liveRev` 推给卡片，条目走独立的 `live-log` 读取，状态帧只带计数 |
 | 扫描结果 | 全量/增量 + 是否含测试 + 是否 AI 复核；四格统计；级别筛选 + 关键词搜索；命中表（规则 / 位置 / 说明），行内四个动作：跳转、编辑、交给 AI、豁免；点行展开 evidence 与修复建议 |
 | 规则开关 | 24 条规则按三层分组，逐条调级别与启停，改完保存 |
 | 白名单 | 信任域名 / 黑名单域名 / 私有 registry / 允许的 CDN，四个文本框 |
@@ -36,17 +37,61 @@
 不会让修复本身看起来失败——历史是旁路。面板与卡片读同一份文件，所以从哪边改的
 都能在另一边看到。
 
+卡片底部有两个开关，职责不同：
+
+| 开关 | 范围 | 关掉之后 |
+|---|---|---|
+| **总开关** | 整个安装（写入 `~/.dsh/dsh-code-quarantine.settings.json`） | 写入拦截与「会话创建时自动审计」都停用；图标变灰。手动扫描、规则/白名单/豁免/AI 配置仍然可用，所以随时能再打开 |
+| **写入拦截** | 当前会话 | 只关掉这个窗口的写盘拦截；另一个窗口不受影响 |
+
+总开关打开（默认）时，**每个新会话创建后会自动对它的工作区跑一次全量审计**，
+结果直接进入图标与扫描页，不需要用户先点按钮。审计走与卡片同一个
+`Panel.scan`（因此结果与手动扫描、CLI 完全一致），完整命中表由 Host 缓存，
+卡片靠 `scanRev` 取一次；状态帧里只带计数，不会因为一次审计变得很大。
+审计是异步子进程，不阻塞窗口创建；子 agent 会话（`parentSession` /
+`delegationDepth > 0`）不会重复扫描父会话的工作区。工作区落在 home、盘根或
+`$DSH_HOME` 时跳过自动审计——未选工作区的会话常带着这些 cwd，扫它们不是用户
+的意思；手动扫描不受此限。
+
 记录是**写入时的快照**，而文件会继续变。所以两边读历史时都带 `verify=1`，由
 `Panel._entry_status()` 逐条回读磁盘，标出四种状态：`current`（改动还在）、
 `reverted`（回到改前或备份内容——有人撤了）、`stale`（被改成第三种样子）、
 `gone`（文件不在了）。卡片给非 `current` 的条目挂一个徽标并把 `+ after` 调淡，
-历史标签停留时每 4 秒重读一次。没有这一步，一条三天前的「已修复」在用户
+历史标签随推送重读（`historyRev` 变了才读）。没有这一步，一条三天前的「已修复」在用户
 `git checkout` 之后仍读起来和刚写的一样可信。
 
 **能力来自同一个 `Panel` 对象**：卡片 → RPC `panel` → `panel_bridge.py` → `Panel`。
 不复制判定逻辑，也不复制写配置逻辑——否则两份实现会慢慢分叉，出现「面板里关掉的
 规则，卡片里还在报」。扫描目标是当前会话的工作区（标题下显示该路径）；Host 拒绝
 相对路径与不存在的目录，不会回落到自己的 `process.cwd()`。
+
+### 状态是推过来的，不是问出来的
+
+卡片订阅 `GET /dsh-code-quarantine/events?session=<id>`（SSE）。Host 在拦截、修复、
+保存配置时各推一帧，25 秒一次心跳保活；客户端断了自动重连（`retry: 2000`）。
+**没有任何轮询定时器**——`test-client.mjs` 里有一条断言就是
+`globals.timers.length === 0`。
+
+帧里带的是整份 `runtime` 快照，不是差量：一个会话的状态只有几百字节，重建一份比
+维护差量协议便宜，也不会出现「漏了一帧就永久错位」。
+
+三个计数器各管一件事：
+
+| 字段 | 什么时候涨 | 卡片怎么用 |
+| --- | --- | --- |
+| `phase` / `alert` / 计数 | 每次拦截、每次扫描 | 决定图标颜色；`alert` 是粘性的，一次 BLOCK 之后不会被一次无害写入洗白 |
+| `historyRev` | 「保存这一行」成功 | 历史标签重读 |
+| `configRev` | 保存规则 / 白名单 / 豁免 / 签名基线 | 各标签页重读（正在编辑时不打断） |
+
+推**计数器**而不是推内容，是因为内容可能有几万字节（24 条规则 + 四类白名单 + 豁免
+清单），而「有没有变」只需要一个数字。卡片收到新值才去读，没变就什么都不做。
+
+Host 还盯着 `.dsh-quarantine.yml`、`.dsh-quarantine-ignore` 与
+`.dsh-quarantine-history.jsonl` 的 `mtime` + `size`（2 秒一次），手改了文件或
+另一块面板写入后同样推一帧（配置推 `configRev`，历史推 `historyRev`）。只看
+元数据不做内容哈希：假阳性只是多刷一次页面，而每 2 秒把配置完整哈希一遍的代价
+是真的。同一个轮询也读一次总开关文件，所以另一个窗口（或手改设置文件）翻转
+总开关时，这边不需要重启就会跟上。
 
 ### 拦哪些工具
 
@@ -66,8 +111,10 @@
 
 | method | 作用 |
 |---|---|
-| `state` | 读状态机（`armed` / `phase` / `alert` / 计数 / `blockOn` / `files` / `verdict`） |
-| `arm` | 开/关写入拦截（关掉后监听器直接 `next()`） |
+| `state` | 读状态机（`enabled` / `armed` / `phase` / `alert` / 计数 / `blockOn` / `files` / `verdict` / `scanRev`） |
+| `scan-result` | 自动审计缓存的完整结果（`findings` 等）。卡片在 `scanRev` 变化或打开时取一次，避免把整张命中表塞进每一帧状态 |
+| `master` | 全局总开关 `{ enabled: boolean }`：关闭后不拦截、不在会话创建时自动审计；持久化，并对所有会话推送 |
+| `arm` | 开/关当前会话的写入拦截（关掉后监听器直接 `next()`） |
 | `configure` | 改拦截级别（`critical` / `warning`） |
 | `audit` | 跑一次全量审计并把结果写进状态机 |
 | `reset` | 清除粘性 `alert` 与计数 |
@@ -163,6 +210,7 @@ dsh-code-quarantine: guarding 5 write tools and 3 shell tools (blockOn=critical)
 | 字段 | 默认 | 含义 |
 |---|---|---|
 | `enabled` | `true` | `false` 时连监听器都不装 |
+| `settingsPath` | `$DSH_HOME/dsh-code-quarantine.settings.json` | 总开关的持久化位置（一般不用改，测试用它隔离状态） |
 | `skillRoot` | 自动探测 | `scripts/` 与 `rules/` 所在的目录 |
 | `python` | Windows 用 `python`，其他用 `python3` | 扫描器解释器 |
 | `blockOn` | `critical` | `warning` 时 WARNING 也拦 |
@@ -211,11 +259,12 @@ node dsh-plugin/test-e2e.mjs
 # 加载器层：真 loader + file:// 说明符，验证用户真正要粘贴的那条路径。7 项。
 node dsh-plugin/test-loader.mjs
 
-# 状态机与 RPC：卡片颜色与开关的真实来源，含六标签面板的全部读写，
-# 以及「每个会话各自一份状态」的隔离断言。72 项。
+# 状态机与 RPC：卡片颜色与开关的真实来源，含六标签面板的全部读写、
+# 「每个会话各自一份状态」的隔离断言、总开关与会话创建时的自动审计。114 项。
 node dsh-plugin/test-state.mjs
 
-# 卡片交互：点开、点内部不关、点外部关、反复开关、修复历史。24 项。
+# 卡片交互：点开、点内部不关、点外部关、反复开关、修复历史、总开关，
+# 以及「状态靠推送而不是轮询」的断言。42 项。
 # 自带一个极简渲染器，不依赖 harness（本机 react-dom / jsdom 都不可用）。
 node dsh-plugin/test-client.mjs
 ```

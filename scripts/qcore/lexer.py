@@ -242,6 +242,15 @@ class Source:
         except SyntaxError as exc:
             self.parse_error = "syntax: %s" % exc
             self.tree = None
+        except RecursionError:
+            # `ast.parse` builds the tree recursively, so one expression with tens
+            # of thousands of operands (`x = 1 + 1 + ...`) overflows the parser's
+            # C stack. That is a property of the file, not of the scanner: the
+            # file still tokenizes, so the lexical rules keep working and only the
+            # AST-backed ones go quiet. Letting the exception escape aborted the
+            # audit of the entire project.
+            self.parse_error = "recursion: expression nests deeper than the parser can handle"
+            self.tree = None
         try:
             toks = list(tokenize.generate_tokens(io.StringIO(self.text).readline))
         except (tokenize.TokenError, IndentationError, SyntaxError):

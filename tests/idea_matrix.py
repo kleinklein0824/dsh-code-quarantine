@@ -175,10 +175,10 @@ try:
     check("L1H", "锚点3 默认只告警不自动删除（无写操作）", True,
           "AD003 默认 WARNING；代码区可升 CRITICAL，共 %d 条" % len(blocked))
 
-    res, got = ids("CONTACT = \"support@relay-promo-hub.top\"\n")
+    res, got = ids("CONTACT = \"support@d1api.xin\"\n")
     check("L1I", "锚点4 代码区联系方式 WARNING", "AD004" in got, "AD004 命中：%s" % got)
 
-    res, got = ids("# 有问题联系 support@relay-promo-hub.top\n")
+    res, got = ids("# 有问题联系 support@d1api.xin\n")
     # idea.md 锚点 4 只要求「代码逻辑区」报 WARNING；注释区不参与执行，降一级到
     # INFO 但仍要看得到——彻底沉默会让「# 售后群：t.me/...」这类中文推广整类漏检。
     comment_sev = {f.severity for f in res.findings if f.rule_id == "AD004"}
